@@ -126,7 +126,7 @@ CATEGORIES = {
 
 
 AUTH_SOURCES = ("local", "ldap")
-ROLES = ("agent", "customer")
+ROLES = ("admin", "agent", "customer")
 
 
 class User(Base):
@@ -160,6 +160,11 @@ class User(Base):
     def effective_role(self) -> str:
         return self.role_override or self.role
 
+    @property
+    def is_staff(self) -> bool:
+        """Admins can do everything agents can."""
+        return self.effective_role in ("admin", "agent")
+
 
 OUTBOX_STATUSES = ("queued", "sending", "sent", "failed", "suppressed")
 
@@ -189,3 +194,17 @@ class Outbox(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+
+class Setting(Base):
+    """Key-value config, overriding .env at runtime. Secrets stored encrypted."""
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(120), nullable=True)

@@ -22,8 +22,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def require_agent(user: User = Depends(current_user)) -> User:
-    if user.effective_role != "agent":
+    if not user.is_staff:
         raise HTTPException(403, "This area is for support staff")
+    return user
+
+
+def require_admin(user: User = Depends(current_user)) -> User:
+    if user.effective_role != "admin":
+        raise HTTPException(403, "This area is for administrators")
     return user
 
 

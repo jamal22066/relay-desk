@@ -150,3 +150,25 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .msg:hover .msgact, .msgact:focus-visible { opacity: 1; }
 .msgact:hover { color: var(--p1); }
+
+.settings { grid-template-columns: 208px 1fr; }
+.setpane { background: var(--panel); overflow-y: auto; min-height: 0; }
+.setpane > * { max-width: 720px; }
+.sethead { padding: 24px 28px 16px; border-bottom: 1px solid var(--rule2); }
+.setbody { padding: 22px 28px; }
+.setfoot {
+  position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center;
+  padding: 14px 28px; border-top: 1px solid var(--rule2); background: #fafbf8;
+}
+.setrow { margin-bottom: 20px; }
+.setrow > label { display: block; font-size: 12.5px; color: var(--ink2); margin-bottom: 5px; }
+.setinput { display: flex; gap: 8px; align-items: center; }
+.setinput .field { flex: 1; }
+.pill {
+  font-size: 10.5px; margin-left: 8px; padding: 1px 6px; border-radius: 3px;
+  background: var(--teal-soft); color: #14514e;
+}
+.pill.muted { background: var(--rule2); color: var(--ink3); }
+.testbox { border-top: 1px solid var(--rule2); padding-top: 20px; margin-top: 28px; }
+.ok { color: var(--teal); font-size: 13px; }
+.bad { color: var(--p1); font-size: 13px; }
