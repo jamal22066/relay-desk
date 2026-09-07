@@ -50,6 +50,38 @@ API docs at http://127.0.0.1:8000/docs
 Open http://127.0.0.1:5173. Vite proxies `/api` to the backend, so both run on
 one origin and CORS never applies in development.
 
+## Development accounts
+
+Created by `python scripts/seed_users.py` (idempotent). **Local development only** —
+these passwords are in the seed script and this file. Change them before any
+deployment, and before this repository becomes public.
+
+| Account | Role | Password |
+|---|---|---|
+| `jamal@relaydesk.io` | admin | `devpassword123` |
+| `rokafor@relaydesk.io` | agent | `devpassword123` |
+| `dana@northgate.io` | customer | `devpassword123` |
+| `priya@ferrous.dev` | customer | `devpassword123` |
+
+The admin role is not granted by the seed script. Promote an account manually:
+
+    UPDATE users SET role='admin' WHERE email='jamal@relaydesk.io';
+
+Run `python scripts/check_admin.py` afterwards — it warns if no local admin exists,
+which would leave you locked out if the directory config breaks.
+
+### Directory test accounts
+
+Loaded into the local 389 DS instance by `ldap-dev/bootstrap.ldif`, password
+`LdapTest123!`. Members of `cn=support-staff` resolve to the agent role; `ext`
+is deliberately outside it, to prove group mapping denies as well as grants.
+
+| Account | Resolves as |
+|---|---|
+| `jamal.nasir@relaydesk.test` | agent |
+| `tremaine.hart@relaydesk.test` | agent |
+| `ext@relaydesk.test` | customer |
+
 ## Schema changes
 
 Alembic owns the schema. Never use `create_all`.
