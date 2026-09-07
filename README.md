@@ -61,12 +61,33 @@ by explicit `op.execute` in the baseline migration.
 
 Both mutate seeded data; re-run `scripts/seed.py` afterward.
 
+## Authentication
+
+Local accounts (argon2) with optional LDAP per user. A local account never
+touches the directory; anyone else is tried against LDAP and provisioned on
+first successful bind. Roles come from LDAP group membership, and a local
+`role_override` column wins over whatever the directory says.
+
+Sessions are JWTs in an httpOnly cookie. Agent endpoints require the agent
+role; portal endpoints derive the customer's identity from the session rather
+than from a request parameter.
+
+## Notifications
+
+Events queue rows in `outbox`; `scripts/mail_worker.py` drains it with
+exponential backoff (1/5/20/60m, five attempts). Customers are emailed on agent
+replies and on resolution; agents on assignment and on customer replies.
+Internal notes email nobody.
+
+`SMTP_ALLOWLIST` is a hard guard — recipients outside it are stored as
+`suppressed` rather than sent. Keep it narrow until the routing is trusted.
+
+    python scripts/mail_worker.py           # continuous
+    python scripts/mail_worker.py --once    # single pass
+
 ## Known gaps
 
-- **No authentication.** Agent endpoints are open, so internal notes are
-  readable by anyone who can reach the API. The portal identifies customers by
-  email address alone.
-- All agent actions are attributed to a single hardcoded user.
 - SLA is elapsed wall-clock. It does not respect business hours and does not
   pause while a ticket waits on the customer.
-- Nothing sends email, despite what the portal confirmation says.
+- No self-service password reset.
+- The worker is a foreground process; nothing supervises it.
