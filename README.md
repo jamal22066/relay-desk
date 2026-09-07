@@ -7,6 +7,12 @@ Two surfaces over one dataset: a customer portal for filing and tracking
 tickets, and an agent console for triage and response. Internal notes are
 visible only to agents.
 
+## Design notes
+
+[Architecture white paper](docs/relay-desk-whitepaper.md) — why this was built rather
+than bought, the authorisation boundary, the SLA engine, and what is deliberately
+not implemented.
+
 ## Features
 
 - Ticket intake with impact-based priority (customers describe blockage, not P-levels)
