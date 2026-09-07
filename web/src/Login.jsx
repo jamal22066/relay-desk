@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { auth } from "./auth";
+import Logo from "./Logo";
 
 export default function Login({ onSignedIn }) {
   const [mode, setMode] = useState("login");
@@ -37,6 +38,7 @@ export default function Login({ onSignedIn }) {
   return (
     <div className="portal">
       <div className="pinner" style={{ maxWidth: 420 }}>
+        <div className="loginmark"><Logo size={44} /></div>
         <h1 className="plead">{mode === "login" ? "Sign in" : "Create an account"}</h1>
         <p className="pdek">
           {mode === "login"

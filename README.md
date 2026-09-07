@@ -123,9 +123,17 @@ Internal notes email nobody.
     python scripts/mail_worker.py           # continuous
     python scripts/mail_worker.py --once    # single pass
 
+Under systemd, so it survives restarts — see `deploy/relay-mail.service.example`:
+
+    sudo cp deploy/relay-mail.service.example /etc/systemd/system/relay-mail.service
+    # edit User and the paths, then
+    sudo systemctl daemon-reload && sudo systemctl enable --now relay-mail
+    journalctl -u relay-mail -f
+
 ## Known gaps
 
 - SLA is elapsed wall-clock. It does not respect business hours and does not
   pause while a ticket waits on the customer.
 - No self-service password reset.
-- The worker is a foreground process; nothing supervises it.
+- Delivery latency is up to 30 seconds (the worker polls rather than listening).
+- No rate limiting on the login endpoint.

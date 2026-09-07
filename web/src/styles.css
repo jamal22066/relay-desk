@@ -174,3 +174,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .bad { color: var(--p1); font-size: 13px; }
 
 button.brand { border: 0 !important; background: none !important; box-shadow: none; cursor: pointer; }
+
+button.brand { display: flex; align-items: center; gap: 9px; }
+.wordmark { font-weight: 600; letter-spacing: -0.01em; }
+.wordmark span { color: var(--teal); }
+.loginmark { margin-bottom: 18px; }

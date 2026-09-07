@@ -5,6 +5,7 @@ import AgentConsole from "./AgentConsole";
 import Login from "./Login";
 import Portal from "./Portal";
 import Settings from "./Settings";
+import Logo from "./Logo";
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -34,7 +35,8 @@ export default function App() {
     <div className="desk">
       <div className="topbar">
         <button className="brand" onClick={() => setShowSettings(false)}
-                title="Back to the queue">Relay <span>Desk</span> by Jamal Nasir</button>
+                title="Back to the queue"><Logo size={22} />
+                <span className="wordmark">Relay <span>Desk</span> by Jamal Nasir</span></button>
         <div className="spacer" />
         {me && (
           <>

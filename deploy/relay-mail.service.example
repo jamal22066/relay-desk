@@ -1,0 +1,17 @@
+[Unit]
+Description=Relay Desk mail worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=USER
+WorkingDirectory=/home/USER/projects/relay-desk
+ExecStart=/home/USER/projects/relay-desk/.venv/bin/python scripts/mail_worker.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
