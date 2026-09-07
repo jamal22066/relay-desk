@@ -23,6 +23,23 @@ class Settings(BaseSettings):
     ldap_attr_email: str = "mail"
     ldap_tls_verify: bool = True
 
+    smtp_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_from_name: str = "Relay desk"
+    smtp_timeout: int = 20
+    # safety valve: only these addresses/domains receive mail.
+    # "*" disables the guard entirely — do not set that until sending is proven.
+    smtp_allowlist: str = ""
+    app_base_url: str = "http://127.0.0.1:5173"
+
+    @property
+    def allowlist(self) -> list[str]:
+        return [a.strip().lower() for a in self.smtp_allowlist.split(",") if a.strip()]
+
     @property
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

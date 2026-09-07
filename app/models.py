@@ -159,3 +159,33 @@ class User(Base):
     @property
     def effective_role(self) -> str:
         return self.role_override or self.role
+
+
+OUTBOX_STATUSES = ("queued", "sending", "sent", "failed", "suppressed")
+
+
+class Outbox(Base):
+    __tablename__ = "outbox"
+    __table_args__ = (
+        CheckConstraint(_in("status", OUTBOX_STATUSES), name="ck_outbox_status"),
+        Index("ix_outbox_status_next", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    to_email: Mapped[str] = mapped_column(String(200))
+    to_name: Mapped[str] = mapped_column(String(120), default="")
+    subject: Mapped[str] = mapped_column(String(400))
+    body: Mapped[str] = mapped_column(Text)
+
+    ticket_ref: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str] = mapped_column(String(40))
+
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

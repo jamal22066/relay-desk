@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import services
+from app import notify, services
 from app.auth import current_user, require_agent
 from app.db import get_db
 from app.models import (
@@ -88,7 +88,10 @@ def patch_ticket(ref: str, payload: TicketPatch, me: UserModel = Depends(require
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
-    services.apply_patch(db, t, me.display_name, **payload.model_dump())
+    changes = payload.model_dump()
+    services.apply_patch(db, t, me.display_name, **changes)
+    db.flush()
+    notify.on_patch(db, t, changes, me.display_name)
     db.commit()
     db.refresh(t)
     return t
@@ -99,7 +102,9 @@ def add_event(ref: str, payload: EventCreate, me: UserModel = Depends(require_ag
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
-    services.add_event(db, t, me.display_name, payload.kind, payload.body)
+    ev = services.add_event(db, t, me.display_name, payload.kind, payload.body)
+    db.flush()
+    notify.on_event(db, t, ev)
     db.commit()
     db.refresh(t)
     return t
@@ -126,7 +131,9 @@ def portal_reply(ref: str, payload: EventCreate, me: UserModel = Depends(current
     t = services.get_or_404(db, ref)
     if not t or t.email != me.email:
         raise HTTPException(404, f"No ticket {ref} for that address")
-    services.add_event(db, t, me.display_name, "comment", payload.body)
+    ev = services.add_event(db, t, me.display_name, "comment", payload.body)
+    db.flush()
+    notify.on_event(db, t, ev)
     db.commit()
     db.refresh(t)
     d = TicketDetail.model_validate(t)
