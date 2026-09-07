@@ -3,39 +3,52 @@ import { api } from "./api";
 import { IMPACT, OPEN_STATUSES, initials, priColor, stamp } from "./util";
 
 const blank = (meta) => ({
-  requester: "", email: "", org: "", track: "saas",
-  category: meta.categories.saas[0], priority: "P3", subject: "", body: "",
+  track: "saas",
+  category: meta.categories.saas[0],
+  priority: "P3",
+  subject: "",
+  body: "",
 });
 
-export default function Portal({ meta }) {
-  const [f, setF] = useState(() => blank(meta));
+export default function Portal({ me }) {
+  const [meta, setMeta] = useState(null);
+  const [f, setF] = useState(null);
   const [filed, setFiled] = useState(null);
-  const [lookup, setLookup] = useState("");
   const [mine, setMine] = useState([]);
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
-  const valid = f.requester.trim() && f.email.trim() && f.subject.trim().length > 2 && f.body.trim().length > 2;
-  const hours = meta.priorities.find((p) => p.id === f.priority).hours;
-
-  const load = (email) => {
-    if (!email.trim()) { setMine([]); return; }
-    api.portalList(email).then(setMine).catch((e) => setErr(e.message));
-  };
+  const load = () => api.portalList().then(setMine).catch((e) => setErr(e.message));
 
   useEffect(() => {
-    const id = setTimeout(() => load(lookup), 300);
-    return () => clearTimeout(id);
-  }, [lookup]);
+    api.portalMeta()
+      .then((m) => { setMeta(m); setF(blank(m)); })
+      .catch((e) => setErr(e.message));
+    load();
+  }, []);
+
+  if (!meta || !f) {
+    return <div className="portal"><div className="loading">Loading…</div></div>;
+  }
+
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const valid = f.subject.trim().length > 2 && f.body.trim().length > 2;
+  const hours = meta.priorities.find((p) => p.id === f.priority).hours;
 
   const submit = async () => {
+    if (!valid || busy) return;
+    setBusy(true);
     try {
-      const t = await api.create({ ...f, org: f.org.trim() || "Unspecified" });
-      setFiled({ ref: t.ref, email: t.email });
-      setLookup(t.email);
+      const t = await api.create(f);
+      setFiled(t.ref);
       setF(blank(meta));
+      await load();
       setErr(null);
-    } catch (e) { setErr(e.message); }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -43,35 +56,19 @@ export default function Portal({ meta }) {
       <div className="pinner">
         {filed && (
           <div className="banner">
-            Ticket <strong className="mono">{filed.ref}</strong> is filed. A reply goes to {filed.email} once
-            someone picks it up.
+            Ticket <strong className="mono">{filed}</strong> is filed. It appears below, and
+            replies from support show up there.
           </div>
         )}
         {err && <div className="errbar" style={{ marginBottom: 20 }}>{err}</div>}
 
         <h1 className="plead">Tell us what broke</h1>
         <p className="pdek">
-          One form for the product and for your laptop. The more specific you are about what you did
-          and what happened instead, the faster this gets resolved.
+          One form for the product and for your laptop. The more specific you are about what you
+          did and what happened instead, the faster this gets resolved.
         </p>
 
         <div className="form">
-          <div className="row2">
-            <div className="fgroup">
-              <label htmlFor="p-name">Your name</label>
-              <input id="p-name" className="field" value={f.requester}
-                     onChange={(e) => set("requester", e.target.value)} />
-            </div>
-            <div className="fgroup">
-              <label htmlFor="p-email">Email for updates</label>
-              <input id="p-email" className="field" type="email" value={f.email}
-                     onChange={(e) => set("email", e.target.value)} />
-            </div>
-          </div>
-          <div className="fgroup">
-            <label htmlFor="p-org">Company</label>
-            <input id="p-org" className="field" value={f.org} onChange={(e) => set("org", e.target.value)} />
-          </div>
           <div className="row2">
             <div className="fgroup">
               <label htmlFor="p-track">What is this about</label>
@@ -89,6 +86,7 @@ export default function Portal({ meta }) {
               </select>
             </div>
           </div>
+
           <div className="fgroup">
             <label htmlFor="p-pri">How badly is this blocking you</label>
             <select id="p-pri" className="field" value={f.priority}
@@ -97,30 +95,32 @@ export default function Portal({ meta }) {
             </select>
             <div className="hint">We aim to respond within {hours} hours for this level.</div>
           </div>
+
           <div className="fgroup">
             <label htmlFor="p-sub">One-line summary</label>
             <input id="p-sub" className="field" value={f.subject}
                    placeholder="SAML login loops back to the sign-in page"
                    onChange={(e) => set("subject", e.target.value)} />
           </div>
+
           <div className="fgroup">
             <label htmlFor="p-body">What happened</label>
             <textarea id="p-body" className="field" rows={6} value={f.body}
                       placeholder="What you were doing, what you expected, what happened instead, and when it started."
                       onChange={(e) => set("body", e.target.value)} />
           </div>
+
           <div className="formfoot">
-            <button className="btn teal" disabled={!valid} onClick={submit}>File ticket</button>
-            {!valid && <span className="hint">Name, email, summary and description are needed.</span>}
+            <button className="btn teal" disabled={!valid || busy} onClick={submit}>
+              {busy ? "Filing…" : "File ticket"}
+            </button>
+            {!valid && <span className="hint">A summary and a description are needed.</span>}
           </div>
         </div>
 
         <div className="mine">
-          <div className="minehead">Check on a ticket</div>
-          <input className="field" style={{ marginBottom: 14 }} value={lookup}
-                 placeholder="Enter the email you filed with, e.g. dana@northgate.io"
-                 onChange={(e) => setLookup(e.target.value)} />
-          {lookup.trim() && mine.length === 0 && <p className="hint">No tickets under that address yet.</p>}
+          <div className="minehead">Your tickets</div>
+          {mine.length === 0 && <p className="hint">Nothing filed yet.</p>}
           {mine.map((t) => (
             <details key={t.ref} className="pticket" style={{ borderLeftColor: priColor[t.priority] }}>
               <summary>
@@ -129,7 +129,7 @@ export default function Portal({ meta }) {
                 <span className="pstat">{t.status}</span>
               </summary>
               <div className="pthread">
-                <Thread t={t} meta={meta} email={lookup} onReply={() => load(lookup)} />
+                <Thread t={t} me={me} onChanged={load} />
               </div>
             </details>
           ))}
@@ -139,7 +139,7 @@ export default function Portal({ meta }) {
   );
 }
 
-function Thread({ t, meta, email, onReply }) {
+function Thread({ t, me, onChanged }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const events = [
@@ -149,14 +149,14 @@ function Thread({ t, meta, email, onReply }) {
 
   const send = async () => {
     setBusy(true);
-    try { await api.portalReply(t.ref, email, draft.trim()); setDraft(""); onReply(); }
+    try { await api.portalReply(t.ref, draft.trim()); setDraft(""); await onChanged(); }
     finally { setBusy(false); }
   };
 
   const remove = async (id) => {
     if (!window.confirm("Remove this message? Support will still see that you removed it.")) return;
     setBusy(true);
-    try { await api.portalDeleteEvent(t.ref, id, email); onReply(); }
+    try { await api.portalDeleteEvent(t.ref, id); await onChanged(); }
     finally { setBusy(false); }
   };
 
@@ -165,14 +165,13 @@ function Thread({ t, meta, email, onReply }) {
       <div style={{ paddingTop: 16 }}>
         {events.map((e) => (
           <div key={e.id} className="msg" data-gone={!!e.deleted_at}>
-            <div className="av" data-agent={meta.agents.includes(e.actor)}>{initials(e.actor)}</div>
+            <div className="av" data-agent={e.actor !== t.requester}>{initials(e.actor)}</div>
             <div className="mbody">
               <div className="mhead">
                 <span className="mname">{e.actor}</span>
                 <span className="mtime mono">{stamp(e.at)}</span>
-                {e.id !== "root" && !e.deleted_at && e.actor === t.requester && (
-                  <button className="msgact" disabled={busy}
-                          onClick={() => remove(e.id)}>Remove</button>
+                {e.id !== "root" && !e.deleted_at && e.actor === me.display_name && (
+                  <button className="msgact" disabled={busy} onClick={() => remove(e.id)}>Remove</button>
                 )}
               </div>
               {e.deleted_at ? (

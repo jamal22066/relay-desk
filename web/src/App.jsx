@@ -1,38 +1,56 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { auth } from "./auth";
 import AgentConsole from "./AgentConsole";
+import Login from "./Login";
 import Portal from "./Portal";
 
 export default function App() {
-  const [mode, setMode] = useState("agent");
+  const [me, setMe] = useState(null);
   const [meta, setMeta] = useState(null);
+  const [ready, setReady] = useState(false);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
-    api.meta().then(setMeta).catch((e) => setErr(e.message));
+    auth.me().then(setMe).catch(() => setMe(null)).finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    if (me?.role !== "agent") { setMeta(null); return; }
+    api.meta().then(setMeta).catch((e) => setErr(e.message));
+  }, [me]);
+
+  const signOut = async () => {
+    await auth.logout().catch(() => {});
+    setMe(null);
+    setMeta(null);
+  };
+
+  if (!ready) return <div className="desk"><div className="loading">…</div></div>;
 
   return (
     <div className="desk">
       <div className="topbar">
         <div className="brand">Relay <span>desk</span></div>
         <div className="spacer" />
-        <div className="switch">
-          <button data-on={mode === "portal"} onClick={() => setMode("portal")}>
-            Customer portal
-          </button>
-          <button data-on={mode === "agent"} onClick={() => setMode("agent")}>
-            Agent console
-          </button>
-        </div>
+        {me && (
+          <>
+            <span className="dsub">
+              {me.display_name} · {me.role === "agent" ? "Support" : me.org}
+            </span>
+            <button className="btn ghost" onClick={signOut}>Sign out</button>
+          </>
+        )}
       </div>
+
       {err && <div className="errbar">{err}</div>}
-      {!meta ? (
-        <div className="loading">Opening the queue…</div>
-      ) : mode === "agent" ? (
-        <AgentConsole meta={meta} />
+
+      {!me ? (
+        <Login onSignedIn={setMe} />
+      ) : me.role === "agent" ? (
+        meta ? <AgentConsole meta={meta} /> : <div className="loading">Opening the queue…</div>
       ) : (
-        <Portal meta={meta} />
+        <Portal me={me} />
       )}
     </div>
   );

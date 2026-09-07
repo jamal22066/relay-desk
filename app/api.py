@@ -39,6 +39,14 @@ def meta(me: UserModel = Depends(require_agent)):
     }
 
 
+@router.get("/portal/meta")
+def portal_meta(me: UserModel = Depends(current_user)):
+    return {
+        "categories": CATEGORIES,
+        "priorities": [{"id": p, "hours": SLA_HOURS[p]} for p in PRIORITIES],
+    }
+
+
 @router.get("/tickets", response_model=list[TicketSummary])
 def list_tickets(
     me: UserModel = Depends(require_agent),
