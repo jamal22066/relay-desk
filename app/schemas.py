@@ -55,15 +55,12 @@ class TicketBase(BaseModel):
     first_response_at: datetime | None
     resolved_at: datetime | None
 
-    @computed_field
-    @property
-    def due_at(self) -> datetime:
-        return self.created_at + timedelta(hours=SLA_HOURS[self.priority])
+    due_at: datetime | None = None
 
     @computed_field
     @property
     def breaching(self) -> bool:
-        if self.status not in OPEN_STATUSES:
+        if self.status not in OPEN_STATUSES or self.due_at is None:
             return False
         return datetime.now(self.created_at.tzinfo) > self.due_at
 

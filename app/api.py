@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app import notify, services
 from app.auth import current_user, require_agent
 from app.db import get_db
+from app.models import utcnow
+from app.sla import Calendar
 from app.models import (
     AGENTS,
     AGENTS_DEFAULT_ME,
@@ -69,6 +71,7 @@ def create_ticket(
     fields = payload.model_dump()
     fields.update(requester=me.display_name, email=me.email, org=me.org)
     t = Ticket(ref=services.next_ref(db), **fields)
+    t.due_at = Calendar(db).deadline(utcnow(), t.priority)
     db.add(t)
     db.commit()
     db.refresh(t)

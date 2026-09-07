@@ -106,3 +106,24 @@ def test_smtp(payload: SmtpTest):
         return {"ok": False, "detail": "The relay rejected the username or password."}
     except Exception as e:
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/sla/recompute")
+def recompute_sla(db: Session = Depends(get_db)):
+    """Reapply current SLA settings to every open ticket."""
+    from sqlalchemy import select
+
+    from app.models import OPEN_STATUSES, Ticket
+    from app.sla import Calendar
+
+    cal = Calendar(db)
+    n = 0
+    for t in db.scalars(select(Ticket).where(Ticket.status.in_(OPEN_STATUSES))):
+        t.due_at = cal.deadline(t.created_at, t.priority, t.paused_seconds or 0)
+        n += 1
+    db.commit()
+    return {
+        "ok": True,
+        "detail": f"Recomputed {n} open ticket(s)"
+                  f" — business hours {'on' if cal.business_only else 'off'}.",
+    }

@@ -72,6 +72,14 @@ class Ticket(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    paused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    paused_seconds: Mapped[int] = mapped_column(Integer, default=0)
+
     events: Mapped[list["Event"]] = relationship(
         back_populates="ticket",
         cascade="all, delete-orphan",

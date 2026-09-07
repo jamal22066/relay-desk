@@ -84,6 +84,7 @@ export default function Settings({ onClose }) {
 
           {active === "ldap" && <LdapTest />}
           {active === "smtp" && <SmtpTest />}
+          {active === "sla" && <SlaRecompute dirty={dirty} />}
         </div>
 
         <div className="setfoot">
@@ -207,6 +208,36 @@ function SmtpTest() {
         <button className="btn ghost" disabled={busy || !to} onClick={run}>
           {busy ? "Sending…" : "Send test"}
         </button>
+        {r && <span className={r.ok ? "ok" : "bad"}>{r.detail}</span>}
+      </div>
+    </div>
+  );
+}
+
+
+function SlaRecompute({ dirty }) {
+  const [r, setR] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try { setR(await call("/api/admin/sla/recompute", { method: "POST" })); }
+    catch (e) { setR({ ok: false, detail: e.message }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="testbox">
+      <div className="minehead">Apply to existing tickets</div>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Changes above only affect new tickets. This recalculates the deadline on every
+        open ticket from its original creation time — some may become past due.
+      </p>
+      <div className="formfoot">
+        <button className="btn ghost" disabled={busy || dirty} onClick={run}>
+          {busy ? "Recomputing…" : "Recompute open tickets"}
+        </button>
+        {dirty && <span className="hint">Save your changes first.</span>}
         {r && <span className={r.ok ? "ok" : "bad"}>{r.detail}</span>}
       </div>
     </div>

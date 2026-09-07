@@ -5,13 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.models import AGENTS_DEFAULT_ME, Event, Ticket, utcnow
 
-SLA_CASE = case(
-    (Ticket.priority == "P1", text("interval '4 hours'")),
-    (Ticket.priority == "P2", text("interval '8 hours'")),
-    (Ticket.priority == "P3", text("interval '24 hours'")),
-    else_=text("interval '72 hours'"),
-)
-DUE_AT = Ticket.created_at + SLA_CASE
+# due_at is stored, computed by app.sla.Calendar on every event that moves it
+DUE_AT = Ticket.due_at
 
 OPEN = ("New", "Open", "Waiting on customer")
 
@@ -38,7 +33,7 @@ def list_tickets(db: Session, view: str, track: str | None, q: str | None) -> li
     elif view == "unassigned":
         stmt = stmt.where(Ticket.assignee == "Unassigned")
     elif view == "breach":
-        stmt = stmt.where(DUE_AT < func.now())
+        stmt = stmt.where(Ticket.due_at.is_not(None), Ticket.due_at < func.now())
 
     if track:
         stmt = stmt.where(Ticket.track == track)
@@ -76,6 +71,10 @@ def add_event(db: Session, t: Ticket, actor: str, kind: str, body: str) -> Event
 
 
 def apply_patch(db: Session, t: Ticket, actor: str, **changes) -> list[Event]:
+    from app.sla import Calendar
+
+    cal = Calendar(db)
+    old_status = t.status
     events = []
     for field, value in changes.items():
         if value is None or getattr(t, field) == value:
@@ -88,9 +87,20 @@ def apply_patch(db: Session, t: Ticket, actor: str, **changes) -> list[Event]:
         }[field]
         events.append(Event(ticket_id=t.id, actor=actor, kind="system", body=label))
         if field == "status":
-            t.resolved_at = (
-                utcnow() if value in ("Resolved", "Closed") else None
-            )
+            t.resolved_at = utcnow() if value in ("Resolved", "Closed") else None
+        if field == "priority":
+            # deadline recalculates from the original creation time
+            t.due_at = cal.deadline(t.created_at, t.priority, t.paused_seconds or 0)
+    if cal.pause_enabled and t.status != old_status:
+        if t.status == "Waiting on customer":
+            t.paused_at = utcnow()
+        elif old_status == "Waiting on customer" and t.paused_at:
+            # the clock stood still: push the deadline out by the working time lost
+            lost = cal.elapsed(t.paused_at, utcnow())
+            t.paused_seconds = (t.paused_seconds or 0) + lost * 60
+            t.due_at = cal.add(t.due_at or t.created_at, lost)
+            t.paused_at = None
+
     for e in events:
         db.add(e)
     if events:
