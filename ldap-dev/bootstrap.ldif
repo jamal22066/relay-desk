@@ -1,0 +1,57 @@
+dn: cn=accounts,dc=relaydesk,dc=test
+objectClass: nsContainer
+objectClass: top
+cn: accounts
+
+dn: cn=users,cn=accounts,dc=relaydesk,dc=test
+objectClass: nsContainer
+objectClass: top
+cn: users
+
+dn: cn=groups,cn=accounts,dc=relaydesk,dc=test
+objectClass: nsContainer
+objectClass: top
+cn: groups
+
+dn: uid=jamal,cn=users,cn=accounts,dc=relaydesk,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: jamal
+cn: Jamal Nasir
+sn: Nasir
+displayName: Jamal Nasir
+mail: jamal.nasir@relaydesk.test
+userPassword: LdapTest123!
+
+dn: uid=tremaine,cn=users,cn=accounts,dc=relaydesk,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: tremaine
+cn: Tremaine Hart
+sn: Hart
+displayName: Tremaine Hart
+mail: tremaine.hart@relaydesk.test
+userPassword: LdapTest123!
+
+dn: uid=external,cn=users,cn=accounts,dc=relaydesk,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: external
+cn: Ext Contractor
+sn: Contractor
+displayName: Ext Contractor
+mail: ext@relaydesk.test
+userPassword: LdapTest123!
+
+dn: cn=support-staff,cn=groups,cn=accounts,dc=relaydesk,dc=test
+objectClass: top
+objectClass: groupOfNames
+cn: support-staff
+member: uid=jamal,cn=users,cn=accounts,dc=relaydesk,dc=test
+member: uid=tremaine,cn=users,cn=accounts,dc=relaydesk,dc=test

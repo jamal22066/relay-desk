@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.config import settings
 from app.db import get_db
+from app.ldap_client import authenticate as ldap_authenticate
 from app.models import User, utcnow
 from app.security import COOKIE, hash_password, issue_token, needs_rehash, verify_password
 
@@ -81,16 +82,32 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     email = payload.email.lower().strip()
     user = db.scalar(select(User).where(func.lower(User.email) == email))
 
-    # same error text and roughly the same work either way, so this does not
-    # reveal whether an account exists
-    if user is None or not user.is_active or user.auth_source != "local":
-        hash_password(payload.password)
-        raise HTTPException(401, "Those details did not match an account")
-    if not verify_password(payload.password, user.password_hash):
+    if user is not None and not user.is_active:
         raise HTTPException(401, "Those details did not match an account")
 
-    if needs_rehash(user.password_hash):
-        user.password_hash = hash_password(payload.password)
+    # local accounts authenticate locally and never touch the directory
+    if user is not None and user.auth_source == "local":
+        if not verify_password(payload.password, user.password_hash):
+            raise HTTPException(401, "Those details did not match an account")
+        if needs_rehash(user.password_hash):
+            user.password_hash = hash_password(payload.password)
+    else:
+        ident = ldap_authenticate(email, payload.password)
+        if ident is None:
+            # same cost and message as a local failure
+            hash_password(payload.password)
+            raise HTTPException(401, "Those details did not match an account")
+
+        if user is None:
+            user = User(email=ident.email, org="Directory", auth_source="ldap")
+            db.add(user)
+        user.display_name = ident.display_name
+        user.ldap_dn = ident.dn
+        user.auth_source = "ldap"
+        user.password_hash = None
+        # role_override still wins in effective_role
+        user.role = "agent" if ident.is_agent else "customer"
+
     user.last_login_at = utcnow()
     db.commit()
     db.refresh(user)
