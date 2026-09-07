@@ -82,14 +82,7 @@ class TicketCreate(BaseModel):
     track: Track
     category: str = Field(max_length=64)
     priority: Priority = "P3"
-    requester: str = Field(min_length=1, max_length=120)
-    email: EmailStr
-    org: str = Field(default="Unspecified", max_length=120)
 
-    @field_validator("email")
-    @classmethod
-    def lower_email(cls, v: str) -> str:
-        return v.lower().strip()
 
 
 class TicketPatch(BaseModel):

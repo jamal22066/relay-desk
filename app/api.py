@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import services
+from app.auth import current_user, require_agent
 from app.db import get_db
 from app.models import (
     AGENTS,
@@ -13,6 +14,7 @@ from app.models import (
     STATUSES,
     Ticket,
 )
+from app.models import User as UserModel
 from app.schemas import (
     EventCreate,
     TicketCreate,
@@ -25,7 +27,7 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/meta")
-def meta():
+def meta(me: UserModel = Depends(require_agent)):
     return {
         "agents": AGENTS,
         "categories": CATEGORIES,
@@ -33,12 +35,13 @@ def meta():
             {"id": p, "hours": SLA_HOURS[p]} for p in PRIORITIES
         ],
         "statuses": STATUSES,
-        "me": AGENTS_DEFAULT_ME,
+        "me": me.display_name,
     }
 
 
 @router.get("/tickets", response_model=list[TicketSummary])
 def list_tickets(
+    me: UserModel = Depends(require_agent),
     view: str = Query("all", pattern="^(all|mine|unassigned|breach|done)$"),
     track: str | None = Query(None, pattern="^(saas|it)$"),
     q: str | None = None,
@@ -48,10 +51,16 @@ def list_tickets(
 
 
 @router.post("/tickets", response_model=TicketDetail, status_code=201)
-def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
+def create_ticket(
+    payload: TicketCreate,
+    me: UserModel = Depends(current_user),
+    db: Session = Depends(get_db),
+):
     if payload.category not in CATEGORIES[payload.track]:
         raise HTTPException(422, f"'{payload.category}' is not a {payload.track} topic")
-    t = Ticket(ref=services.next_ref(db), **payload.model_dump())
+    fields = payload.model_dump()
+    fields.update(requester=me.display_name, email=me.email, org=me.org)
+    t = Ticket(ref=services.next_ref(db), **fields)
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -59,7 +68,7 @@ def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/tickets/{ref}", response_model=TicketDetail)
-def get_ticket(ref: str, db: Session = Depends(get_db)):
+def get_ticket(ref: str, me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
@@ -67,22 +76,22 @@ def get_ticket(ref: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/tickets/{ref}", response_model=TicketDetail)
-def patch_ticket(ref: str, payload: TicketPatch, db: Session = Depends(get_db)):
+def patch_ticket(ref: str, payload: TicketPatch, me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
-    services.apply_patch(db, t, AGENTS_DEFAULT_ME, **payload.model_dump())
+    services.apply_patch(db, t, me.display_name, **payload.model_dump())
     db.commit()
     db.refresh(t)
     return t
 
 
 @router.post("/tickets/{ref}/events", response_model=TicketDetail, status_code=201)
-def add_event(ref: str, payload: EventCreate, db: Session = Depends(get_db)):
+def add_event(ref: str, payload: EventCreate, me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
-    services.add_event(db, t, payload.actor or AGENTS_DEFAULT_ME, payload.kind, payload.body)
+    services.add_event(db, t, me.display_name, payload.kind, payload.body)
     db.commit()
     db.refresh(t)
     return t
@@ -92,9 +101,9 @@ def add_event(ref: str, payload: EventCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/portal/tickets", response_model=list[TicketDetail])
-def portal_tickets(email: str, db: Session = Depends(get_db)):
+def portal_tickets(me: UserModel = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.scalars(
-        select(Ticket).where(Ticket.email == email.lower().strip()).order_by(Ticket.created_at.desc())
+        select(Ticket).where(Ticket.email == me.email).order_by(Ticket.created_at.desc())
     ).all()
     out = []
     for t in rows:
@@ -105,11 +114,11 @@ def portal_tickets(email: str, db: Session = Depends(get_db)):
 
 
 @router.post("/portal/tickets/{ref}/events", response_model=TicketDetail, status_code=201)
-def portal_reply(ref: str, payload: EventCreate, email: str, db: Session = Depends(get_db)):
+def portal_reply(ref: str, payload: EventCreate, me: UserModel = Depends(current_user), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
-    if not t or t.email != email.lower().strip():
+    if not t or t.email != me.email:
         raise HTTPException(404, f"No ticket {ref} for that address")
-    services.add_event(db, t, t.requester, "comment", payload.body)
+    services.add_event(db, t, me.display_name, "comment", payload.body)
     db.commit()
     db.refresh(t)
     d = TicketDetail.model_validate(t)
@@ -118,16 +127,16 @@ def portal_reply(ref: str, payload: EventCreate, email: str, db: Session = Depen
 
 
 @router.get("/counts")
-def counts(db: Session = Depends(get_db)):
+def counts(me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
     return {"views": services.counts(db), "tracks": services.track_counts(db)}
 
 
 @router.delete("/tickets/{ref}/events/{event_id}", response_model=TicketDetail)
-def delete_event(ref: str, event_id: int, db: Session = Depends(get_db)):
+def delete_event(ref: str, event_id: int, me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
     if not t:
         raise HTTPException(404, f"No ticket {ref}")
-    ev, problem = services.delete_event(db, t, event_id, AGENTS_DEFAULT_ME)
+    ev, problem = services.delete_event(db, t, event_id, me.display_name)
     if problem:
         raise HTTPException(404 if ev is None and "No such" in problem else 403, problem)
     db.commit()
@@ -136,39 +145,11 @@ def delete_event(ref: str, event_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/portal/tickets/{ref}/events/{event_id}", response_model=TicketDetail)
-def portal_delete_event(ref: str, event_id: int, email: str, db: Session = Depends(get_db)):
+def portal_delete_event(ref: str, event_id: int, me: UserModel = Depends(current_user), db: Session = Depends(get_db)):
     t = services.get_or_404(db, ref)
-    if not t or t.email != email.lower().strip():
+    if not t or t.email != me.email:
         raise HTTPException(404, f"No ticket {ref} for that address")
-    ev, problem = services.delete_event(db, t, event_id, t.requester, as_requester=True)
-    if problem:
-        raise HTTPException(404 if ev is None and "No such" in problem else 403, problem)
-    db.commit()
-    db.refresh(t)
-    d = TicketDetail.model_validate(t)
-    d.events = [e for e in d.events if e.kind == "comment"]
-    return d
-
-
-@router.delete("/tickets/{ref}/events/{event_id}", response_model=TicketDetail)
-def delete_event(ref: str, event_id: int, db: Session = Depends(get_db)):
-    t = services.get_or_404(db, ref)
-    if not t:
-        raise HTTPException(404, f"No ticket {ref}")
-    ev, problem = services.delete_event(db, t, event_id, AGENTS_DEFAULT_ME)
-    if problem:
-        raise HTTPException(404 if ev is None and "No such" in problem else 403, problem)
-    db.commit()
-    db.refresh(t)
-    return t
-
-
-@router.delete("/portal/tickets/{ref}/events/{event_id}", response_model=TicketDetail)
-def portal_delete_event(ref: str, event_id: int, email: str, db: Session = Depends(get_db)):
-    t = services.get_or_404(db, ref)
-    if not t or t.email != email.lower().strip():
-        raise HTTPException(404, f"No ticket {ref} for that address")
-    ev, problem = services.delete_event(db, t, event_id, t.requester, as_requester=True)
+    ev, problem = services.delete_event(db, t, event_id, me.display_name, as_requester=True)
     if problem:
         raise HTTPException(404 if ev is None and "No such" in problem else 403, problem)
     db.commit()

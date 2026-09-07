@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str
     cors_origins: str = "http://localhost:5173"
 
+    secret_key: str
+    session_hours: int = 12
+    cookie_secure: bool = False
+
     @property
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

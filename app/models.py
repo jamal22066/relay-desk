@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -122,3 +123,39 @@ CATEGORIES = {
         "Security concern",
     ],
 }
+
+
+AUTH_SOURCES = ("local", "ldap")
+ROLES = ("agent", "customer")
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(_in("role", ROLES), name="ck_user_role"),
+        CheckConstraint(_in("auth_source", AUTH_SOURCES), name="ck_user_auth_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(120))
+    org: Mapped[str] = mapped_column(String(120), default="Unspecified")
+
+    auth_source: Mapped[str] = mapped_column(String(16), default="local")
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ldap_dn: Mapped[str | None] = mapped_column(String(400), nullable=True)
+
+    # role resolution: role_override wins when set, else the LDAP group mapping,
+    # else this stored value from the last successful login
+    role: Mapped[str] = mapped_column(String(16), default="customer")
+    role_override: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    @property
+    def effective_role(self) -> str:
+        return self.role_override or self.role
