@@ -137,3 +137,18 @@ Under systemd, so it survives restarts — see `deploy/relay-mail.service.exampl
 - No self-service password reset.
 - Delivery latency is up to 30 seconds (the worker polls rather than listening).
 - No rate limiting on the login endpoint.
+
+## Dependency advisories
+
+`./scripts/audit.sh` reports open advisories in starlette 0.41.3, pinned by
+FastAPI. They concern `request.url` reconstruction from a malformed `Host`
+header or request path, and are exploitable only where authorization decisions
+read `request.url`. This application authorizes via route dependencies
+(`require_agent`, `require_admin`), which run after routing on the matched
+route, and never reads `request.url`. The only middleware is CORS.
+
+**If path-based authorization middleware is ever added, upgrade FastAPI and
+starlette first.**
+
+The remaining `cryptography` advisories cover X.509 chain verification and
+PKCS#7 decryption. This application uses Fernet only.
