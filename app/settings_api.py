@@ -96,12 +96,16 @@ class SmtpTest(BaseModel):
 @router.post("/test/smtp")
 def test_smtp(payload: SmtpTest):
     from app.mailer import allowed, build, send
-    if not allowed(payload.to):
-        return {"ok": False, "detail": f"{payload.to} is not in the allowlist — refusing to send."}
+
+    # The allowlist guards automated notification routing, where a bug could mail
+    # many people. This is a deliberate one-off with fixed content, so it sends
+    # regardless — but says so when the recipient is outside the list.
+    outside = not allowed(payload.to)
     try:
         send(build(payload.to, "", "Relay desk settings test",
                    "Sent from the admin settings page. Delivery is working."))
-        return {"ok": True, "detail": f"Sent to {payload.to}"}
+        note = " (outside the allowlist — notifications to this address would be suppressed)" if outside else ""
+        return {"ok": True, "detail": f"Sent to {payload.to}{note}"}
     except smtplib.SMTPAuthenticationError:
         return {"ok": False, "detail": "The relay rejected the username or password."}
     except Exception as e:

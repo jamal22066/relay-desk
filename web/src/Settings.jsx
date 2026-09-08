@@ -200,7 +200,8 @@ function SmtpTest() {
     <div className="testbox">
       <div className="minehead">Send a test message</div>
       <p className="hint" style={{ marginTop: 0 }}>
-        The allowlist still applies — a recipient outside it is refused, not sent.
+        Sends to any address, so you can verify the relay. The allowlist still governs
+        real notifications — an address outside it is reported here, not silently allowed.
       </p>
       <input className="field" placeholder="Recipient" value={to}
              onChange={(e) => setTo(e.target.value)} />
