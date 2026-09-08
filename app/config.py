@@ -7,7 +7,12 @@ class Settings(BaseSettings):
     database_url: str
     cors_origins: str = "http://localhost:5173"
 
+    environment: str = "development"
     secret_key: str
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() in ("production", "prod")
     session_hours: int = 12
     cookie_secure: bool = False
 

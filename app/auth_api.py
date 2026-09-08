@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import get_db
 from app.ldap_client import authenticate as ldap_authenticate
 from app.models import User, utcnow
+from app.ratelimit import check as rl_check, clear as rl_clear
 from app.security import COOKIE, hash_password, issue_token, needs_rehash, verify_password
 
 router = APIRouter(prefix="/api/auth")
@@ -78,8 +79,10 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
 
 
 @router.post("/login", response_model=Me)
-def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
+def login(payload: LoginIn, request: Request, response: Response,
+          db: Session = Depends(get_db)):
     email = payload.email.lower().strip()
+    rl_check(request, email)
     user = db.scalar(select(User).where(func.lower(User.email) == email))
 
     if user is not None and not user.is_active:
@@ -112,6 +115,7 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    rl_clear(request, email)
     _set_cookie(response, user)
     return _me(user)
 

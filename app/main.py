@@ -8,7 +8,15 @@ from app.settings_api import router as settings_router
 from app.config import settings
 from app.headers import SecurityHeaders
 
-app = FastAPI(title="Relay desk", version="0.1.0")
+_docs = None if settings.is_production else "/docs"
+
+app = FastAPI(
+    title="Relay desk",
+    version="0.1.0",
+    docs_url=_docs,
+    redoc_url=None,
+    openapi_url=None if settings.is_production else "/openapi.json",
+)
 
 app.add_middleware(SecurityHeaders)
 
