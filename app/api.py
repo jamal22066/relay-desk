@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import notify, services
@@ -41,6 +41,26 @@ def meta(me: UserModel = Depends(require_agent)):
     }
 
 
+@router.get("/users/lookup")
+def lookup_users(q: str = "", me: UserModel = Depends(require_agent),
+                 db: Session = Depends(get_db)):
+    """Existing accounts an agent can file a ticket for."""
+    stmt = select(UserModel).where(UserModel.is_active)
+    if q.strip():
+        like = f"%{q.lower().strip()}%"
+        stmt = stmt.where(
+            func.lower(UserModel.display_name).like(like)
+            | func.lower(UserModel.email).like(like)
+            | func.lower(UserModel.org).like(like)
+        )
+    rows = db.scalars(stmt.order_by(UserModel.display_name).limit(20)).all()
+    return [
+        {"email": u.email, "display_name": u.display_name,
+         "org": u.org, "role": u.effective_role}
+        for u in rows
+    ]
+
+
 @router.get("/portal/meta")
 def portal_meta(me: UserModel = Depends(current_user)):
     return {
@@ -69,7 +89,26 @@ def create_ticket(
     if payload.category not in CATEGORIES[payload.track]:
         raise HTTPException(422, f"'{payload.category}' is not a {payload.track} topic")
     fields = payload.model_dump()
-    fields.update(requester=me.display_name, email=me.email, org=me.org)
+    on_behalf = fields.pop("requester_email", None)
+
+    subject_user = me
+    if on_behalf and on_behalf.lower().strip() != me.email:
+        if not me.is_staff:
+            raise HTTPException(403, "You can only file tickets for yourself")
+        subject_user = db.scalar(
+            select(UserModel).where(
+                func.lower(UserModel.email) == on_behalf.lower().strip(),
+                UserModel.is_active,
+            )
+        )
+        if subject_user is None:
+            raise HTTPException(422, "No active account with that address")
+
+    fields.update(
+        requester=subject_user.display_name,
+        email=subject_user.email,
+        org=subject_user.org,
+    )
     t = Ticket(ref=services.next_ref(db), **fields)
     t.due_at = Calendar(db).deadline(utcnow(), t.priority)
     db.add(t)

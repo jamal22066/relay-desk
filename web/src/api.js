@@ -27,6 +27,9 @@ export const api = {
     if (q) p.set("q", q);
     return fetch(`/api/tickets?${p}`, { credentials: "same-origin" }).then(j);
   },
+  lookupUsers: (q) =>
+    fetch(`/api/users/lookup?q=${encodeURIComponent(q || "")}`,
+          { credentials: "same-origin" }).then(j),
   get: (ref) => fetch(`/api/tickets/${ref}`, { credentials: "same-origin" }).then(j),
   create: (body) => post("/api/tickets", body),
   patch: (ref, body) =>

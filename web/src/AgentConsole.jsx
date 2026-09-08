@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import NewTicket from "./NewTicket";
 import { OPEN_STATUSES, countdown, initials, priColor, relative, stamp } from "./util";
 
 const VIEWS = [
@@ -16,6 +17,7 @@ export default function AgentConsole({ meta }) {
   const [ref, setRef] = useState(null);
   const [active, setActive] = useState(null);
   const [err, setErr] = useState(null);
+  const [creating, setCreating] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -73,8 +75,12 @@ export default function AgentConsole({ meta }) {
 
       <div className="queue">
         <div className="searchwrap">
-          <input className="search" placeholder="Search tickets, people, orgs"
-                 value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="searchrow">
+            <input className="search" placeholder="Search tickets, people, orgs"
+                   value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="btn teal newbtn" onClick={() => setCreating(true)}
+                    title="New ticket">+</button>
+          </div>
         </div>
         <div className="qlist">
           {err && <div className="errbar">{err}</div>}
@@ -101,7 +107,10 @@ export default function AgentConsole({ meta }) {
         </div>
       </div>
 
-      {active ? (
+      {creating ? (
+        <NewTicket meta={meta} onCancel={() => setCreating(false)}
+                   onCreated={(ref) => { setCreating(false); setRef(ref); refresh(); }} />
+      ) : active ? (
         <Detail t={active} meta={meta} onChanged={onChanged} />
       ) : (
         <div className="detail"><div className="empty">Pick a ticket to read it.</div></div>

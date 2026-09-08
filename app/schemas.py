@@ -79,6 +79,8 @@ class TicketCreate(BaseModel):
     track: Track
     category: str = Field(max_length=64)
     priority: Priority = "P3"
+    # agents only: file on behalf of an existing account. Ignored for customers.
+    requester_email: str | None = None
 
 
 

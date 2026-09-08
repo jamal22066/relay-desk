@@ -179,3 +179,21 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 .wordmark { font-weight: 600; letter-spacing: -0.01em; }
 .wordmark span { color: var(--teal); }
 .loginmark { margin-bottom: 18px; }
+
+.searchrow { display: flex; gap: 8px; }
+.searchrow .search { flex: 1; }
+.newbtn { padding: 6px 12px; font-size: 16px; line-height: 1; }
+.chosen {
+  display: flex; align-items: center; gap: 12px; padding: 9px 12px;
+  background: var(--teal-soft); border: 1px solid #bcd8d6; border-radius: 5px;
+}
+.chosen span { flex: 1; font-size: 13px; }
+.picker { margin-top: 8px; border: 1px solid var(--rule); border-radius: 5px; max-height: 220px; overflow-y: auto; }
+.pickrow {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left;
+  border: 0; border-bottom: 1px solid var(--rule2); background: transparent; padding: 9px 12px;
+}
+.pickrow:last-child { border-bottom: 0; }
+.pickrow:hover { background: #f7f8f5; }
+.pickname { font-weight: 450; font-size: 13px; }
+.picker .hint { margin: 0; }
