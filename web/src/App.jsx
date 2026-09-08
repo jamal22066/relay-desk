@@ -15,6 +15,16 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = window.location.pathname === "/verify" ? params.get("token") : null;
+
+    if (token) {
+      auth.verify(token)
+        .then((m) => { setMe(m); window.history.replaceState({}, "", "/"); })
+        .catch((e) => setErr(e.message))
+        .finally(() => setReady(true));
+      return;
+    }
     auth.me().then(setMe).catch(() => setMe(null)).finally(() => setReady(true));
   }, []);
 

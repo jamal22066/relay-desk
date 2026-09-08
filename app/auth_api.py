@@ -9,6 +9,7 @@ from app.db import get_db
 from app.ldap_client import authenticate as ldap_authenticate
 from app.models import User, utcnow
 from app.ratelimit import check as rl_check, clear as rl_clear
+from app.verify import issue as issue_verify, read as read_verify
 from app.security import COOKIE, hash_password, issue_token, needs_rehash, verify_password
 
 router = APIRouter(prefix="/api/auth")
@@ -74,7 +75,9 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
     db.add(user)
     db.commit()
     db.refresh(user)
-    _set_cookie(response, user)
+
+    _send_verification(db, user)
+    # no session: the address must be confirmed first
     return _me(user)
 
 
@@ -92,6 +95,13 @@ def login(payload: LoginIn, request: Request, response: Response,
     if user is not None and user.auth_source == "local":
         if not verify_password(payload.password, user.password_hash):
             raise HTTPException(401, "Those details did not match an account")
+        if not user.email_verified:
+            _send_verification(db, user)
+            raise HTTPException(
+                403,
+                "Check your email and confirm your address before signing in. "
+                "We have sent another link.",
+            )
         if needs_rehash(user.password_hash):
             user.password_hash = hash_password(payload.password)
     else:
@@ -127,4 +137,56 @@ def logout(response: Response):
 
 @router.get("/me", response_model=Me)
 def me(user: User = Depends(current_user)):
+    return _me(user)
+
+
+def _send_verification(db: Session, user: User) -> None:
+    """Queue a confirmation link. Bypasses the allowlist deliberately: the
+    address was just typed by whoever is registering, the content is fixed,
+    and no ticket data is included."""
+    from app.config import settings as env
+    from app.models import Outbox
+
+    if not env.smtp_enabled:
+        return
+
+    token = issue_verify(user.id, user.email)
+    link = f"{env.app_base_url.rstrip('/')}/verify?token={token}"
+    db.add(Outbox(
+        to_email=user.email,
+        to_name=user.display_name,
+        subject="Confirm your email address",
+        body=(
+            f"Hello {user.display_name},\n\n"
+            f"Confirm your address to finish setting up your Relay Desk account:\n\n"
+            f"{link}\n\n"
+            f"The link is valid for 48 hours. If you did not sign up, ignore this."
+        ),
+        reason="verify_email",
+        status="queued",
+    ))
+    db.commit()
+
+
+class VerifyIn(BaseModel):
+    token: str
+
+
+@router.post("/verify", response_model=Me)
+def verify_email(payload: VerifyIn, response: Response, db: Session = Depends(get_db)):
+    claims = read_verify(payload.token)
+    if not claims:
+        raise HTTPException(400, "That link is invalid or has expired.")
+
+    user = db.get(User, int(claims["sub"]))
+    if user is None or user.email != claims["email"]:
+        raise HTTPException(400, "That link is no longer valid.")
+
+    if not user.email_verified:
+        user.email_verified = True
+        user.verified_at = utcnow()
+        db.commit()
+        db.refresh(user)
+
+    _set_cookie(response, user)
     return _me(user)

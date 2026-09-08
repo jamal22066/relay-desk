@@ -159,6 +159,12 @@ class User(Base):
     role_override: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # local accounts must confirm their address before they can sign in or
+    # receive notifications. LDAP accounts are verified by the directory.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

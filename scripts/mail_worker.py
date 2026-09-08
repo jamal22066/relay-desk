@@ -34,8 +34,10 @@ def drain(limit: int = 20) -> int:
         ).all()
 
         for row in rows:
-            # re-check: the allowlist may have tightened since queueing
-            if not allowed(row.to_email):
+            # Re-check: the allowlist may have tightened since queueing.
+            # Verification links are exempt — the address was just typed by
+            # whoever is registering, and the content is fixed with no ticket data.
+            if row.reason != "verify_email" and not allowed(row.to_email):
                 row.status = "suppressed"
                 row.last_error = "recipient not in allowlist"
                 log.info("suppressed %s -> %s", row.id, row.to_email)

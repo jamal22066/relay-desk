@@ -18,4 +18,8 @@ export const auth = {
   register: (payload) =>
     call("/api/auth/register", { method: "POST", headers: json, body: JSON.stringify(payload) }),
   logout: () => call("/api/auth/logout", { method: "POST" }),
+  verify: (token) =>
+    call("/api/auth/verify", { method: "POST", headers: json, body: JSON.stringify({ token }) }),
+  verify: (token) =>
+    call("/api/auth/verify", { method: "POST", headers: json, body: JSON.stringify({ token }) }),
 };

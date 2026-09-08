@@ -7,6 +7,7 @@ export default function Login({ onSignedIn }) {
   const [f, setF] = useState({ email: "", password: "", display_name: "", org: "" });
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(null);
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const valid =
@@ -19,16 +20,19 @@ export default function Login({ onSignedIn }) {
     setBusy(true);
     setErr(null);
     try {
-      const me =
-        mode === "login"
-          ? await auth.login(f.email.trim(), f.password)
-          : await auth.register({
-              email: f.email.trim(),
-              password: f.password,
-              display_name: f.display_name.trim(),
-              org: f.org.trim() || "Unspecified",
-            });
-      onSignedIn(me);
+      if (mode === "login") {
+        onSignedIn(await auth.login(f.email.trim(), f.password));
+      } else {
+        await auth.register({
+          email: f.email.trim(),
+          password: f.password,
+          display_name: f.display_name.trim(),
+          org: f.org.trim() || "Unspecified",
+        });
+        // registration does not sign you in: the address must be confirmed
+        setSent(f.email.trim());
+        setBusy(false);
+      }
     } catch (e) {
       setErr(e.message);
       setBusy(false);
@@ -39,6 +43,19 @@ export default function Login({ onSignedIn }) {
     <div className="portal">
       <div className="pinner" style={{ maxWidth: 420 }}>
         <div className="loginmark"><Logo size={44} /></div>
+        {sent && (
+          <>
+            <h1 className="plead">Check your email</h1>
+            <p className="pdek">
+              We sent a confirmation link to <strong>{sent}</strong>. Open it to finish
+              setting up your account. The link is valid for 48 hours.
+            </p>
+            <button className="btn ghost" onClick={() => { setSent(null); setMode("login"); }}>
+              Back to sign in
+            </button>
+          </>
+        )}
+        {!sent && (<>
         {mode === "register" && (
           <button className="backlink" onClick={() => { setMode("login"); setErr(null); }}>
             ← Back to sign in
@@ -97,6 +114,7 @@ export default function Login({ onSignedIn }) {
             </button>
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );
