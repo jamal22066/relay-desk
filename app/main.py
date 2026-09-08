@@ -6,8 +6,11 @@ from app.api import router
 from app.auth_api import router as auth_router
 from app.settings_api import router as settings_router
 from app.config import settings
+from app.headers import SecurityHeaders
 
 app = FastAPI(title="Relay desk", version="0.1.0")
+
+app.add_middleware(SecurityHeaders)
 
 app.add_middleware(
     CORSMiddleware,
