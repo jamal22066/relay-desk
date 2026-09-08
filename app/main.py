@@ -1,5 +1,9 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
@@ -37,6 +41,19 @@ def healthz():
     return {"ok": True}
 
 
-@app.get("/", include_in_schema=False)
-def root():
-    return RedirectResponse("/docs")
+_static = Path(__file__).resolve().parent.parent / "static"
+
+if _static.is_dir():
+    app.mount("/assets", StaticFiles(directory=_static / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        """Serve built files; anything unmatched falls through to the SPA."""
+        candidate = _static / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_static / "index.html")
+else:
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse("/docs")

@@ -1,0 +1,46 @@
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: relaydesk
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relaydesk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/relay-desk:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://relay:${POSTGRES_PASSWORD}@db:5432/relaydesk
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  worker:
+    image: localhost/relay-desk:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://relay:${POSTGRES_PASSWORD}@db:5432/relaydesk
+    command: ["python", "scripts/mail_worker.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
