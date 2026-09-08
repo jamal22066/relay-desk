@@ -13,6 +13,10 @@ visible only to agents.
 than bought, the authorisation boundary, the SLA engine, and what is deliberately
 not implemented.
 
+[Security review](docs/security-review.md) — findings from dependency auditing,
+static analysis and ZAP scanning, what was fixed, and what was assessed and
+deferred with reasoning.
+
 ## Features
 
 - Ticket intake with impact-based priority (customers describe blockage, not P-levels)
