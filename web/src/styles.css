@@ -197,3 +197,6 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 .pickrow:hover { background: #f7f8f5; }
 .pickname { font-weight: 450; font-size: 13px; }
 .picker .hint { margin: 0; }
+
+.testbox .formfoot .btn { white-space: nowrap; }
+.testbox .field { max-width: 340px; }
