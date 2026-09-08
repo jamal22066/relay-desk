@@ -39,6 +39,11 @@ export default function Login({ onSignedIn }) {
     <div className="portal">
       <div className="pinner" style={{ maxWidth: 420 }}>
         <div className="loginmark"><Logo size={44} /></div>
+        {mode === "register" && (
+          <button className="backlink" onClick={() => { setMode("login"); setErr(null); }}>
+            ← Back to sign in
+          </button>
+        )}
         <h1 className="plead">{mode === "login" ? "Sign in" : "Create an account"}</h1>
         <p className="pdek">
           {mode === "login"
@@ -88,7 +93,7 @@ export default function Login({ onSignedIn }) {
             </button>
             <button className="btn ghost" disabled={busy}
                     onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(null); }}>
-              {mode === "login" ? "Create an account" : "I already have one"}
+              {mode === "login" ? "Create an account" : "Cancel"}
             </button>
           </div>
         </div>

@@ -200,3 +200,9 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 
 .testbox .formfoot .btn { white-space: nowrap; }
 .testbox .field { max-width: 340px; }
+
+.backlink {
+  border: 0; background: transparent; padding: 0; margin-bottom: 10px;
+  font-size: 13px; color: var(--ink2); cursor: pointer;
+}
+.backlink:hover { color: var(--teal); text-decoration: underline; }
