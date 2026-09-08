@@ -26,7 +26,7 @@ curl -s -b "$JAR" "$API/auth/me" | python3 -c 'import json,sys; print("  ", json
 
 echo "== customer login yields customer role =="
 curl -s -c "$JAR.cust" -X POST "$API/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"dana@northgate.io","password":"devpassword123"}' \
+  -d '{"email":"jamal@jamalsblog.com","password":"devpassword123"}' \
   | python3 -c 'import json,sys; print("  ", json.load(sys.stdin)["role"])'
 
 echo "== logout clears it =="

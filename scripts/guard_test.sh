@@ -2,26 +2,30 @@
 API=http://localhost:8000/api
 AJ=$(mktemp); CJ=$(mktemp)
 code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
-row() { printf "   %-46s %s\n" "$1" "$2"; }
+FAIL=0
+row() {
+  printf "   %-46s %-4s" "$1" "$2"
+  if [ -n "$3" ] && [ "$2" != "$3" ]; then echo "  EXPECTED $3"; FAIL=1; else echo; fi
+}
 
 curl -s -c "$AJ" -X POST "$API/auth/login" -H 'content-type: application/json' \
   -d '{"email":"jamal@relaydesk.io","password":"devpassword123"}' -o /dev/null
 curl -s -c "$CJ" -X POST "$API/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"dana@northgate.io","password":"devpassword123"}' -o /dev/null
+  -d '{"email":"jamal@jamalsblog.com","password":"devpassword123"}' -o /dev/null
 
 echo "== anonymous is locked out (expect 401) =="
 for p in /meta /counts "/tickets?view=all" /tickets/TKT-1041 /portal/tickets; do
-  row "$p" "$(code "$API$p")"
+  row "$p" "$(code "$API$p")" 401
 done
 
 echo "== customer cannot reach agent endpoints (expect 403) =="
 for p in /meta /counts "/tickets?view=all" /tickets/TKT-1041; do
-  row "$p" "$(code -b "$CJ" "$API$p")"
+  row "$p" "$(code -b "$CJ" "$API$p")" 403
 done
 
 echo "== agent can (expect 200) =="
 for p in /meta /counts "/tickets?view=all" /tickets/TKT-1041; do
-  row "$p" "$(code -b "$AJ" "$API$p")"
+  row "$p" "$(code -b "$AJ" "$API$p")" 200
 done
 
 echo "== customer portal returns only their own tickets =="
@@ -41,3 +45,6 @@ curl -s -b "$CJ" -X POST "$API/tickets" -H 'content-type: application/json' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  ", d["ref"], "|", d["requester"], "|", d["email"], "|", d["org"])'
 
 rm -f "$AJ" "$CJ"
+
+[ "$FAIL" = 0 ] && echo "== all guards held ==" || echo "== GUARD FAILURES ABOVE =="
+exit $FAIL

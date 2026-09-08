@@ -152,3 +152,19 @@ starlette first.**
 
 The remaining `cryptography` advisories cover X.509 chain verification and
 PKCS#7 decryption. This application uses Fernet only.
+
+## Security scanning
+
+`./scripts/audit.sh` covers dependency CVEs and static analysis.
+
+ZAP was run against the API with an authenticated admin session (see
+`deploy/zap-plan.yaml.example`). It found missing security headers, now fixed by
+`app/headers.py`. Coverage was limited: ZAP's active scanner fuzzes query
+parameters and headers, and this API takes JSON bodies and path parameters, so
+few endpoints were meaningfully exercised. Treat the clean result as weak
+evidence.
+
+Authorization is the higher risk and is not scanner-testable with a single
+session. `scripts/guard_test.sh` covers it directly, asserting that anonymous
+callers get 401, customers get 403 on agent endpoints, and portal queries are
+scoped to the session's own tickets.

@@ -16,7 +16,7 @@ else:
 
 echo "== local account still authenticates locally =="
 try jamal@relaydesk.io devpassword123
-try dana@northgate.io devpassword123
+try jamal@jamalsblog.com devpassword123
 
 echo "== directory accounts =="
 try jamal.nasir@relaydesk.test 'LdapTest123!'

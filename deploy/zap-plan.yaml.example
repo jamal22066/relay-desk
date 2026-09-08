@@ -1,0 +1,46 @@
+env:
+  contexts:
+    - name: relay
+      urls: [ "http://127.0.0.1:8000" ]
+      includePaths: [ "http://127.0.0.1:8000/api.*" ]
+      excludePaths:
+        - "http://127.0.0.1:8000/api/auth/logout"
+        - "http://127.0.0.1:8000/api/admin/test/smtp"
+  parameters:
+    failOnError: false
+    progressToStdout: true
+
+jobs:
+  - type: replacer
+    parameters:
+      deleteAllRules: true
+    rules:
+      - description: session cookie
+        matchType: REQ_HEADER
+        matchString: Cookie
+        matchRegex: false
+        replacementString: "relay_session=PASTE_A_SESSION_COOKIE_HERE"
+        tokenProcessing: false
+
+  - type: openapi
+    parameters:
+      apiFile: /tmp/openapi.json
+      targetUrl: http://127.0.0.1:8000
+      context: relay
+
+  - type: activeScan
+    parameters:
+      context: relay
+      policy: "Default Policy"
+      maxRuleDurationInMins: 10
+      maxScanDurationInMins: 90
+      threadPerHost: 5
+    policyDefinition:
+      defaultStrength: insane
+      defaultThreshold: low
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /home/jamal
+      reportFile: zap-full.json
