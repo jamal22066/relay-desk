@@ -65,6 +65,8 @@ SPECS: list[Spec] = [
     Spec("notify_ticket_resolved", "bool", "notifications", "Email customer on resolve or close"),
     Spec("notify_assigned", "bool", "notifications", "Email agent when assigned a ticket"),
     Spec("notify_customer_reply", "bool", "notifications", "Email owning agent on customer reply"),
+    Spec("notify_new_ticket_staff", "bool", "notifications", "Email all staff when a ticket is filed"),
+    Spec("notify_new_ticket_customer", "bool", "notifications", "Send the customer a receipt when they file"),
 
     # --- SLA ---
     Spec("sla_p1_hours", "int", "sla", "P1 target (hours)"),
@@ -95,6 +97,8 @@ DEFAULTS: dict[str, Any] = {
     "notify_ticket_resolved": True,
     "notify_assigned": True,
     "notify_customer_reply": True,
+    "notify_new_ticket_staff": True,
+    "notify_new_ticket_customer": True,
     "sla_p1_hours": 4,
     "sla_p2_hours": 8,
     "sla_p3_hours": 24,

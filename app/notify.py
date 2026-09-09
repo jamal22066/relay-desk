@@ -1,7 +1,7 @@
 """Decide who to email and queue it. Never sends inline."""
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -75,3 +75,48 @@ def on_patch(db: Session, t: Ticket, changes: dict, actor: str) -> None:
                         f"{t.priority} · {t.category} · {t.requester} at {t.org}\n\n"
                         f"{t.body[:400]}\n\n{_link(t.ref)}",
                    reason="assigned", ticket_ref=t.ref)
+
+
+def on_new_ticket(db: Session, t: Ticket) -> None:
+    """A ticket was just filed."""
+    from app import settings_store as store
+
+    if store.get(db, "notify_new_ticket_customer"):
+        _queue(
+            db, to_email=t.email, to_name=t.requester,
+            subject=f"[{t.ref}] We received your request: {t.subject}",
+            body=(
+                f"Thanks {t.requester}, your ticket is logged as {t.ref}.\n\n"
+                f"{t.priority} · {t.category}\n\n"
+                f"Someone will reply here. You can follow it at:\n{_link(t.ref)}"
+            ),
+            reason="ticket_receipt", ticket_ref=t.ref,
+        )
+
+    if not store.get(db, "notify_new_ticket_staff"):
+        return
+
+    # every active agent and admin, except whoever filed it
+    staff = db.scalars(
+        select(User).where(
+            User.is_active,
+            or_(
+                User.role.in_(("agent", "admin")),
+                User.role_override.in_(("agent", "admin")),
+            ),
+        )
+    ).all()
+
+    for u in staff:
+        if u.email == t.email:
+            continue
+        _queue(
+            db, to_email=u.email, to_name=u.display_name,
+            subject=f"[{t.ref}] New {t.priority}: {t.subject}",
+            body=(
+                f"{t.requester} at {t.org} filed a new ticket.\n\n"
+                f"{t.priority} · {t.category} · due {t.due_at:%Y-%m-%d %H:%M} UTC\n\n"
+                f"{t.body[:600]}\n\n{_link(t.ref)}"
+            ),
+            reason="new_ticket", ticket_ref=t.ref,
+        )

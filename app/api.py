@@ -112,6 +112,8 @@ def create_ticket(
     t = Ticket(ref=services.next_ref(db), **fields)
     t.due_at = Calendar(db).deadline(utcnow(), t.priority)
     db.add(t)
+    db.flush()
+    notify.on_new_ticket(db, t)
     db.commit()
     db.refresh(t)
     return t
