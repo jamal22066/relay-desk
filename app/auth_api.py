@@ -57,7 +57,11 @@ def _me(u: User) -> Me:
 
 
 @router.post("/register", response_model=Me, status_code=201)
-def register(payload: RegisterIn, response: Response, db: Session = Depends(get_db)):
+def register(payload: RegisterIn, request: Request, response: Response,
+             db: Session = Depends(get_db)):
+    # registration queues admin mail and a verification send, so it needs the
+    # same per-IP cap as login
+    rl_check(request)
     email = payload.email.lower().strip()
     exists = db.scalar(select(User).where(func.lower(User.email) == email))
     if exists:
