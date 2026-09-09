@@ -18,9 +18,10 @@ const ADMIN_META = {
   outbox: { title: "Mail queue", blurb: "Every notification the system has queued, sent or suppressed." },
 };
 
-export default function Settings({ onClose }) {
+export default function Settings({ section: routeSection, onSection, onClose }) {
   const [data, setData] = useState(null);
-  const [active, setActive] = useState("overview");
+  const active = routeSection || "overview";
+  const setActive = onSection;
   const [edits, setEdits] = useState({});
   const [err, setErr] = useState(null);
   const [saved, setSaved] = useState(false);

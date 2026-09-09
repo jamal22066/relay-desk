@@ -5,6 +5,7 @@ import AgentConsole from "./AgentConsole";
 import Login from "./Login";
 import Portal from "./Portal";
 import Settings from "./Settings";
+import { onPopState, parse, push, replace } from "./route";
 import Logo from "./Logo";
 
 export default function App() {
@@ -12,12 +13,12 @@ export default function App() {
   const [meta, setMeta] = useState(null);
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
-  // /t/TKT-1054 opens that ticket directly; the server serves the SPA for any path
-  const [deepRef] = useState(() => {
-    const m = window.location.pathname.match(/^\/t\/([A-Za-z0-9_-]+)\/?$/);
-    return m ? m[1].toUpperCase() : null;
-  });
+  const [route, setRoute] = useState(() => parse());
+  const showSettings = route.view === "settings";
+  const deepRef = route.view === "ticket" ? route.ref : null;
+
+
+  useEffect(() => onPopState(setRoute), []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -25,7 +26,7 @@ export default function App() {
 
     if (token) {
       auth.verify(token)
-        .then((m) => { setMe(m); window.history.replaceState({}, "", "/"); })
+        .then((m) => { setMe(m); replace("/"); setRoute({ view: "home" }); })
         .catch((e) => setErr(e.message))
         .finally(() => setReady(true));
       return;
@@ -50,14 +51,15 @@ export default function App() {
     <div className="desk">
       <div className="topbar">
         <button className="brand"
-                onClick={() => { setShowSettings(false); window.history.replaceState({}, "", "/"); }}
+                onClick={() => { push("/"); setRoute({ view: "home" }); }}
                 title="Back to the queue"><Logo size={22} />
                 <span className="wordmark">Relay <span>Desk</span> by Jamal Nasir</span></button>
         <div className="spacer" />
         {me && (
           <>
             {me.role === "admin" && !showSettings && (
-              <button className="btn ghost" onClick={() => setShowSettings(true)}>Settings</button>
+              <button className="btn ghost"
+                      onClick={() => { push("/settings"); setRoute({ view: "settings", section: "overview" }); }}>Settings</button>
             )}
             <span className="dsub">
               {me.display_name} · {me.role === "customer" ? me.org : "Support"}
@@ -72,7 +74,9 @@ export default function App() {
       {!me ? (
         <Login onSignedIn={setMe} />
       ) : showSettings ? (
-        <Settings onClose={() => setShowSettings(false)} />
+        <Settings section={route.section}
+                  onSection={(k) => { push(`/settings/${k}`); setRoute({ view: "settings", section: k }); }}
+                  onClose={() => { push("/"); setRoute({ view: "home" }); }} />
       ) : me.role !== "customer" ? (
         meta ? <AgentConsole meta={meta} initialRef={deepRef} /> : <div className="loading">Opening the queue…</div>
       ) : (
