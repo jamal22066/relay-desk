@@ -77,6 +77,9 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
     db.refresh(user)
 
     _send_verification(db, user)
+    from app import notify
+    notify.on_account_event(db, user, "signup")
+    db.commit()
     # no session: the address must be confirmed first
     return _me(user)
 
@@ -183,8 +186,12 @@ def verify_email(payload: VerifyIn, response: Response, db: Session = Depends(ge
         raise HTTPException(400, "That link is no longer valid.")
 
     if not user.email_verified:
+        from app import notify
+
         user.email_verified = True
         user.verified_at = utcnow()
+        db.flush()
+        notify.on_account_event(db, user, "verified")
         db.commit()
         db.refresh(user)
 

@@ -120,3 +120,43 @@ def on_new_ticket(db: Session, t: Ticket) -> None:
             ),
             reason="new_ticket", ticket_ref=t.ref,
         )
+
+
+def on_account_event(db: Session, user: User, stage: str) -> None:
+    """Tell administrators about a signup or a confirmed address.
+
+    stage is "signup" (registered, address unproven) or "verified".
+    """
+    from app import settings_store as store
+
+    if not store.get(db, "notify_signup" if stage == "signup" else "notify_verified"):
+        return
+
+    admins = db.scalars(
+        select(User).where(
+            User.is_active,
+            or_(User.role == "admin", User.role_override == "admin"),
+        )
+    ).all()
+
+    if stage == "signup":
+        subject = f"New signup: {user.display_name}"
+        lead = "registered and has been sent a confirmation link."
+    else:
+        subject = f"Account confirmed: {user.display_name}"
+        lead = "confirmed their email address and can now sign in."
+
+    for a in admins:
+        if a.id == user.id:
+            continue
+        _queue(
+            db, to_email=a.email, to_name=a.display_name,
+            subject=subject,
+            body=(
+                f"{user.display_name} {lead}\n\n"
+                f"{user.email}\n"
+                f"Company: {user.org}\n\n"
+                f"Manage accounts at {settings.app_base_url.rstrip('/')}/settings/users"
+            ),
+            reason=f"account_{stage}", ticket_ref=None,
+        )
