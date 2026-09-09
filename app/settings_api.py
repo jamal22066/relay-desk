@@ -327,3 +327,59 @@ def dashboard(db: Session = Depends(get_db)):
             for e in recent
         ],
     }
+
+
+@router.get("/outbox")
+def list_outbox(status: str | None = None, limit: int = 100,
+                db: Session = Depends(get_db)):
+    from sqlalchemy import select
+
+    from app.config import settings as env
+    from app.models import Outbox
+
+    stmt = select(Outbox).order_by(Outbox.id.desc()).limit(min(limit, 500))
+    if status:
+        stmt = stmt.where(Outbox.status == status)
+
+    rows = db.scalars(stmt).all()
+    return {
+        "from_address": env.smtp_from or "(not configured)",
+        "smtp_enabled": env.smtp_enabled,
+        "allowlist": env.allowlist or ["(empty — everything suppresses)"],
+        "messages": [
+            {
+                "id": r.id,
+                "status": r.status,
+                "reason": r.reason,
+                "to_email": r.to_email,
+                "to_name": r.to_name,
+                "subject": r.subject,
+                "body": r.body,
+                "ticket_ref": r.ticket_ref,
+                "attempts": r.attempts,
+                "last_error": r.last_error,
+                "created_at": r.created_at,
+                "next_attempt_at": r.next_attempt_at,
+                "sent_at": r.sent_at,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/outbox/{msg_id}/retry")
+def retry_message(msg_id: int, db: Session = Depends(get_db)):
+    from app.models import Outbox, utcnow
+
+    row = db.get(Outbox, msg_id)
+    if row is None:
+        raise HTTPException(404, "No such message")
+    if row.status == "sent":
+        return {"ok": False, "detail": "That message was already delivered."}
+
+    row.status = "queued"
+    row.attempts = 0
+    row.last_error = None
+    row.next_attempt_at = utcnow()
+    db.commit()
+    return {"ok": True, "detail": f"Requeued message {msg_id}. The worker picks it up shortly."}

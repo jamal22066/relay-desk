@@ -239,3 +239,21 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 .msgact.danger:hover { color: var(--p1); }
 .pill.warn { background: #fbf3e0; color: #8a6a1e; }
 .setpane { }
+
+.mailbody {
+  white-space: pre-wrap; font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px; color: var(--ink2); background: #fafbf8;
+  border: 1px solid var(--rule2); border-radius: 5px; padding: 12px 14px; margin: 4px 0 10px;
+}
+.pill.ok-pill { background: var(--teal-soft); color: #14514e; }
+
+/* the mail queue needs more room than the settings forms */
+.setpane:has(.mailqueue) > * { max-width: none; }
+.mailqueue .utable { table-layout: fixed; }
+.mailqueue .utable th:nth-child(1) { width: 90px; }
+.mailqueue .utable th:nth-child(2) { width: 210px; }
+.mailqueue .utable th:nth-child(4) { width: 110px; }
+.mailqueue .utable th:nth-child(5),
+.mailqueue .utable th:nth-child(6) { width: 90px; }
+.mailqueue .utable th:nth-child(7) { width: 110px; }
+.mailqueue .utable td { word-break: break-word; }
