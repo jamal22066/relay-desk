@@ -24,7 +24,7 @@ def _queue(db: Session, *, to_email: str, to_name: str, subject: str, body: str,
 
 
 def _link(ref: str) -> str:
-    return f"{settings.app_base_url.rstrip('/')}  (ticket {ref})"
+    return f"{settings.app_base_url.rstrip('/')}/t/{ref}"
 
 
 def _agent_email(db: Session, display_name: str) -> tuple[str, str] | None:

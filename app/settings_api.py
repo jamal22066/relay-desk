@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import settings_store as store
-from app.auth import require_admin
+from app.auth import current_user, require_admin
 from app.db import get_db
 from app.models import Setting, User
 
@@ -130,4 +130,200 @@ def recompute_sla(db: Session = Depends(get_db)):
         "ok": True,
         "detail": f"Recomputed {n} open ticket(s)"
                   f" — business hours {'on' if cal.business_only else 'off'}.",
+    }
+
+
+# ---------------------------------------------------------------- users
+
+
+def _active_admin_count(db: Session) -> int:
+    from sqlalchemy import or_, select
+
+    from app.models import User as U
+
+    return len(db.scalars(
+        select(U).where(
+            U.is_active,
+            or_(U.role == "admin", U.role_override == "admin"),
+        )
+    ).all())
+
+
+def _guard_last_admin(db: Session, target: User, me: User, action: str) -> None:
+    """Refuse changes that would remove the last way in."""
+    if target.id == me.id:
+        raise HTTPException(400, f"You cannot {action} your own account.")
+    if target.effective_role == "admin" and _active_admin_count(db) <= 1:
+        raise HTTPException(400, f"Cannot {action} the last active administrator.")
+
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db)):
+    from sqlalchemy import func, select
+
+    from app.models import Ticket, User as U
+
+    counts = dict(
+        db.execute(
+            select(Ticket.email, func.count()).group_by(Ticket.email)
+        ).all()
+    )
+
+    rows = db.scalars(select(U).order_by(U.role, U.email)).all()
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "display_name": u.display_name,
+            "org": u.org,
+            "role": u.effective_role,
+            "stored_role": u.role,
+            "role_override": u.role_override,
+            "auth_source": u.auth_source,
+            "is_active": u.is_active,
+            "email_verified": u.email_verified,
+            "created_at": u.created_at,
+            "last_login_at": u.last_login_at,
+            "ticket_count": counts.get(u.email, 0),
+        }
+        for u in rows
+    ]
+
+
+class UserPatch(BaseModel):
+    role: str | None = None
+    is_active: bool | None = None
+    email_verified: bool | None = None
+
+
+@router.patch("/users/{user_id}")
+def patch_user(user_id: int, payload: UserPatch,
+               me: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.models import ROLES, User as U, utcnow
+
+    target = db.get(U, user_id)
+    if target is None:
+        raise HTTPException(404, "No such account")
+
+    if payload.role is not None:
+        if payload.role not in ROLES:
+            raise HTTPException(422, f"Role must be one of {', '.join(ROLES)}")
+        if payload.role != "admin":
+            _guard_last_admin(db, target, me, "demote")
+        # role_override wins over whatever LDAP says, so set that
+        target.role_override = payload.role
+
+    if payload.is_active is not None:
+        if not payload.is_active:
+            _guard_last_admin(db, target, me, "deactivate")
+        target.is_active = payload.is_active
+
+    if payload.email_verified is not None:
+        target.email_verified = payload.email_verified
+        target.verified_at = utcnow() if payload.email_verified else None
+
+    db.commit()
+    return {"ok": True, "detail": f"Updated {target.email}"}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, me: User = Depends(require_admin),
+                db: Session = Depends(get_db)):
+    from app.models import User as U
+
+    target = db.get(U, user_id)
+    if target is None:
+        raise HTTPException(404, "No such account")
+    _guard_last_admin(db, target, me, "delete")
+
+    email = target.email
+    db.delete(target)
+    db.commit()
+    # tickets keep the requester name and address: the history stays intact
+    return {"ok": True, "detail": f"Deleted {email}. Their tickets remain."}
+
+
+@router.post("/users/{user_id}/resend-verification")
+def resend_verification(user_id: int, db: Session = Depends(get_db)):
+    from app.auth_api import _send_verification
+    from app.models import User as U
+
+    target = db.get(U, user_id)
+    if target is None:
+        raise HTTPException(404, "No such account")
+    if target.email_verified:
+        return {"ok": False, "detail": "That address is already verified."}
+    if target.auth_source != "local":
+        return {"ok": False, "detail": "Directory accounts do not use email verification."}
+
+    _send_verification(db, target)
+    return {"ok": True, "detail": f"Verification link queued for {target.email}"}
+
+
+@router.get("/dashboard")
+def dashboard(db: Session = Depends(get_db)):
+    from datetime import timedelta
+
+    from sqlalchemy import func, select
+
+    from app.models import Event, OPEN_STATUSES, Outbox, Ticket, User as U, utcnow
+
+    def counts(col):
+        return dict(db.execute(select(col, func.count()).group_by(col)).all())
+
+    now = utcnow()
+    breaching = db.scalar(
+        select(func.count()).select_from(Ticket).where(
+            Ticket.status.in_(OPEN_STATUSES),
+            Ticket.due_at.is_not(None),
+            Ticket.due_at < now,
+        )
+    )
+    due_soon = db.scalar(
+        select(func.count()).select_from(Ticket).where(
+            Ticket.status.in_(OPEN_STATUSES),
+            Ticket.due_at.between(now, now + timedelta(hours=4)),
+        )
+    )
+
+    recent = db.scalars(
+        select(Event).order_by(Event.at.desc()).limit(12)
+    ).all()
+    refs = dict(db.execute(select(Ticket.id, Ticket.ref)).all())
+
+    return {
+        "tickets": {
+            "by_status": counts(Ticket.status),
+            "by_priority": counts(Ticket.priority),
+            "unassigned": db.scalar(
+                select(func.count()).select_from(Ticket).where(
+                    Ticket.assignee == "Unassigned",
+                    Ticket.status.in_(OPEN_STATUSES),
+                )
+            ),
+            "breaching": breaching,
+            "due_soon": due_soon,
+        },
+        "outbox": counts(Outbox.status),
+        "users": {
+            "total": db.scalar(select(func.count()).select_from(U)),
+            "unverified": db.scalar(
+                select(func.count()).select_from(U).where(
+                    U.email_verified.is_(False), U.auth_source == "local"
+                )
+            ),
+            "inactive": db.scalar(
+                select(func.count()).select_from(U).where(U.is_active.is_(False))
+            ),
+        },
+        "recent": [
+            {
+                "at": e.at,
+                "actor": e.actor,
+                "kind": e.kind,
+                "ticket_ref": refs.get(e.ticket_id),
+                "summary": (e.body[:90] if not e.deleted_at else "(removed)"),
+            }
+            for e in recent
+        ],
     }

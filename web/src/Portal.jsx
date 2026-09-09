@@ -10,13 +10,14 @@ const blank = (meta) => ({
   body: "",
 });
 
-export default function Portal({ me }) {
+export default function Portal({ me, initialRef }) {
   const [meta, setMeta] = useState(null);
   const [f, setF] = useState(null);
   const [filed, setFiled] = useState(null);
   const [mine, setMine] = useState([]);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [openRef, setOpenRef] = useState(initialRef ?? null);
 
   const load = () => api.portalList().then(setMine).catch((e) => setErr(e.message));
 
@@ -122,7 +123,10 @@ export default function Portal({ me }) {
           <div className="minehead">Your tickets</div>
           {mine.length === 0 && <p className="hint">Nothing filed yet.</p>}
           {mine.map((t) => (
-            <details key={t.ref} className="pticket" style={{ borderLeftColor: priColor[t.priority] }}>
+            <details key={t.ref} className="pticket"
+                     style={{ borderLeftColor: priColor[t.priority] }}
+                     open={t.ref === openRef}
+                     onToggle={(e) => setOpenRef(e.currentTarget.open ? t.ref : null)}>
               <summary>
                 <span className="qid mono">{t.ref}</span>
                 <span className="psub">{t.subject}</span>

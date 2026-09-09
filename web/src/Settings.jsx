@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import AdminDashboard from "./AdminDashboard";
+import AdminUsers from "./AdminUsers";
 
 const j = { "content-type": "application/json" };
 const call = async (url, opts = {}) => {
@@ -8,9 +10,15 @@ const call = async (url, opts = {}) => {
   return b;
 };
 
+const ADMIN_VIEWS = [["overview", "Overview"], ["users", "Accounts"]];
+const ADMIN_META = {
+  overview: { title: "Overview", blurb: "Queue health, email delivery and recent activity." },
+  users: { title: "Accounts", blurb: "Everyone who can sign in. Roles set here override the directory." },
+};
+
 export default function Settings({ onClose }) {
   const [data, setData] = useState(null);
-  const [active, setActive] = useState("ldap");
+  const [active, setActive] = useState("overview");
   const [edits, setEdits] = useState({});
   const [err, setErr] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -23,7 +31,8 @@ export default function Settings({ onClose }) {
 
   if (!data) return <div className="loading">{err || "Loading settings…"}</div>;
 
-  const section = data.sections.find((s) => s.key === active);
+  const adminView = ADMIN_META[active];
+  const section = adminView || data.sections.find((s) => s.key === active);
   const dirty = Object.keys(edits).length > 0;
 
   const valueOf = (f) => (f.key in edits ? edits[f.key] : f.value);
@@ -53,6 +62,15 @@ export default function Settings({ onClose }) {
     <div className="frame settings">
       <nav className="rail">
         <div className="railgroup">
+          <div className="railtitle">Admin</div>
+          {ADMIN_VIEWS.map(([k, label]) => (
+            <button key={k} className="railitem" data-on={active === k}
+                    onClick={() => setActive(k)}>
+              <span className="label">{label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="railgroup">
           <div className="railtitle">Settings</div>
           {data.sections.map((s) => (
             <button key={s.key} className="railitem" data-on={active === s.key}
@@ -77,7 +95,9 @@ export default function Settings({ onClose }) {
         {err && <div className="errbar">{err}</div>}
         {saved && !dirty && <div className="banner">Saved.</div>}
 
-        <div className="setbody">
+        {adminView && (active === "overview" ? <AdminDashboard /> : <AdminUsers />)}
+
+        {!adminView && <div className="setbody">
           {section.fields.map((f) => (
             <Field key={f.key} f={f} value={valueOf(f)} onChange={set} onReset={reset} />
           ))}
@@ -85,16 +105,16 @@ export default function Settings({ onClose }) {
           {active === "ldap" && <LdapTest />}
           {active === "smtp" && <SmtpTest />}
           {active === "sla" && <SlaRecompute dirty={dirty} />}
-        </div>
+        </div>}
 
-        <div className="setfoot">
+        {!adminView && <div className="setfoot">
           <button className="btn teal" disabled={!dirty || busy} onClick={save}>
             {busy ? "Saving…" : dirty ? `Save ${Object.keys(edits).length} change(s)` : "No changes"}
           </button>
           {dirty && (
             <button className="btn ghost" onClick={() => setEdits({})}>Discard</button>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );

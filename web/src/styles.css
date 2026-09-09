@@ -206,3 +206,36 @@ button.brand { display: flex; align-items: center; gap: 9px; }
   font-size: 13px; color: var(--ink2); cursor: pointer;
 }
 .backlink:hover { color: var(--teal); text-decoration: underline; }
+
+.statrow { display: flex; flex-wrap: wrap; gap: 10px; }
+.stat {
+  flex: 1 1 120px; border: 1px solid var(--rule); border-radius: 6px;
+  padding: 12px 14px; background: var(--panel);
+}
+.stat[data-tone='warn'] { border-color: #e0c68a; background: #fdf8ec; }
+.stat[data-tone='bad'] { border-color: #e3b0aa; background: #fdf1ef; }
+.statv { font-size: 22px; font-weight: 500; line-height: 1.1; }
+.statl { font-size: 12px; color: var(--ink3); margin-top: 3px; }
+
+.feed { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.feedrow {
+  display: flex; gap: 10px; align-items: baseline; padding: 8px 12px;
+  border-bottom: 1px solid var(--rule2); font-size: 13px;
+}
+.feedrow:last-child { border-bottom: 0; }
+.feedwho { font-weight: 450; }
+.feedtxt { flex: 1; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.utable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.utable th {
+  text-align: left; font-weight: 500; font-size: 12px; color: var(--ink3);
+  border-bottom: 1px solid var(--rule); padding: 0 10px 7px 0;
+}
+.utable td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--rule2); vertical-align: top; }
+.utable tr[data-off='true'] { opacity: 0.55; }
+.uname { font-weight: 450; }
+.uactions { white-space: nowrap; }
+.uactions .msgact { opacity: 1; display: inline-block; margin-right: 8px; }
+.msgact.danger:hover { color: var(--p1); }
+.pill.warn { background: #fbf3e0; color: #8a6a1e; }
+.setpane { }

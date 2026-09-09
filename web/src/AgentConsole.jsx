@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import NewTicket from "./NewTicket";
 import { OPEN_STATUSES, countdown, initials, priColor, relative, stamp } from "./util";
@@ -8,13 +8,16 @@ const VIEWS = [
   ["breach", "Past due"], ["done", "Resolved"],
 ];
 
-export default function AgentConsole({ meta }) {
+export default function AgentConsole({ meta, initialRef }) {
   const [view, setView] = useState("all");
   const [track, setTrack] = useState(null);
   const [q, setQ] = useState("");
   const [list, setList] = useState([]);
   const [counts, setCounts] = useState({ views: {}, tracks: {} });
-  const [ref, setRef] = useState(null);
+  const [ref, setRef] = useState(initialRef ?? null);
+  // a deep-linked ticket may not be in the default queue, so let it survive
+  // the first refresh before auto-selection resumes
+  const holdDeepLink = useRef(Boolean(initialRef));
   const [active, setActive] = useState(null);
   const [err, setErr] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -25,7 +28,11 @@ export default function AgentConsole({ meta }) {
       setList(rows);
       setCounts(c);
       setErr(null);
-      if (!rows.some((t) => t.ref === ref)) setRef(rows[0]?.ref ?? null);
+      if (holdDeepLink.current) {
+        holdDeepLink.current = false;
+      } else if (!rows.some((t) => t.ref === ref)) {
+        setRef(rows[0]?.ref ?? null);
+      }
     } catch (e) { setErr(e.message); }
   }, [view, track, q, ref]);
 

@@ -13,6 +13,11 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  // /t/TKT-1054 opens that ticket directly; the server serves the SPA for any path
+  const [deepRef] = useState(() => {
+    const m = window.location.pathname.match(/^\/t\/([A-Za-z0-9_-]+)\/?$/);
+    return m ? m[1].toUpperCase() : null;
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -44,7 +49,8 @@ export default function App() {
   return (
     <div className="desk">
       <div className="topbar">
-        <button className="brand" onClick={() => setShowSettings(false)}
+        <button className="brand"
+                onClick={() => { setShowSettings(false); window.history.replaceState({}, "", "/"); }}
                 title="Back to the queue"><Logo size={22} />
                 <span className="wordmark">Relay <span>Desk</span> by Jamal Nasir</span></button>
         <div className="spacer" />
@@ -68,9 +74,9 @@ export default function App() {
       ) : showSettings ? (
         <Settings onClose={() => setShowSettings(false)} />
       ) : me.role !== "customer" ? (
-        meta ? <AgentConsole meta={meta} /> : <div className="loading">Opening the queue…</div>
+        meta ? <AgentConsole meta={meta} initialRef={deepRef} /> : <div className="loading">Opening the queue…</div>
       ) : (
-        <Portal me={me} />
+        <Portal me={me} initialRef={deepRef} />
       )}
     </div>
   );
