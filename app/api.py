@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import notify, services
@@ -29,9 +29,19 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/meta")
-def meta(me: UserModel = Depends(require_agent)):
+def meta(me: UserModel = Depends(require_agent), db: Session = Depends(get_db)):
+    # the roster is whoever can actually work tickets, not a fixed list
+    staff = db.scalars(
+        select(UserModel.display_name).where(
+            UserModel.is_active,
+            or_(
+                UserModel.role.in_(("agent", "admin")),
+                UserModel.role_override.in_(("agent", "admin")),
+            ),
+        ).order_by(UserModel.display_name)
+    ).all()
     return {
-        "agents": AGENTS,
+        "agents": ["Unassigned", *staff],
         "categories": CATEGORIES,
         "priorities": [
             {"id": p, "hours": SLA_HOURS[p]} for p in PRIORITIES
