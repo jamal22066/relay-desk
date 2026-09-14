@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Relay Desk schedules hourly
+
+[Timer]
+OnCalendar=hourly
+# catch up after a reboot rather than waiting for the next whole hour
+Persistent=true
+# stagger slightly so it does not collide with other hourly jobs
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

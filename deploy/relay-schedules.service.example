@@ -1,0 +1,12 @@
+[Unit]
+Description=Relay Desk scheduled ticket runner
+# the app container holds the venv and the database connection; this unit only
+# triggers it. If the container is down the run fails and says so in the journal.
+After=relay-desk.service
+Requires=relay-desk.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman exec relay-desk_app_1 python scripts/run_schedules.py
+StandardOutput=journal
+StandardError=journal
