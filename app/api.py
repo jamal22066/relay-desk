@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -334,6 +334,7 @@ async def upload_attachment(
 
 @router.get("/attachments/{attachment_id}")
 def download_attachment(
+    request: Request,
     attachment_id: int,
     me: UserModel = Depends(current_user),
     db: Session = Depends(get_db),
@@ -341,6 +342,13 @@ def download_attachment(
     from fastapi.responses import FileResponse
 
     from app.storage import UploadRejected, path_for
+
+    # Starlette's FileResponse parses Range headers with quadratic-time logic
+    # (PYSEC-2026-1942). Attachments are small and partial downloads serve no
+    # purpose here, so drop the header rather than let it reach the parser.
+    request.scope["headers"] = [
+        (k, v) for k, v in request.scope["headers"] if k.lower() != b"range"
+    ]
 
     att = _attachment_or_404(db, attachment_id, me)
     try:
