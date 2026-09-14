@@ -74,7 +74,7 @@ export default function App() {
       {!me ? (
         <Login onSignedIn={setMe} />
       ) : showSettings ? (
-        <Settings section={route.section}
+        <Settings meta={meta} section={route.section}
                   onSection={(k) => { push(`/settings/${k}`); setRoute({ view: "settings", section: k }); }}
                   onClose={() => { push("/"); setRoute({ view: "home" }); }} />
       ) : me.role !== "customer" ? (

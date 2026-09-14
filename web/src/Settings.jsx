@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AdminDashboard from "./AdminDashboard";
 import AdminOutbox from "./AdminOutbox";
 import AdminUsers from "./AdminUsers";
+import Schedules from "./Schedules";
 
 const j = { "content-type": "application/json" };
 const call = async (url, opts = {}) => {
@@ -11,14 +12,16 @@ const call = async (url, opts = {}) => {
   return b;
 };
 
-const ADMIN_VIEWS = [["overview", "Overview"], ["users", "Accounts"], ["outbox", "Mail queue"]];
+const ADMIN_VIEWS = [["overview", "Overview"], ["users", "Accounts"],
+                     ["schedules", "Schedules"], ["outbox", "Mail queue"]];
 const ADMIN_META = {
   overview: { title: "Overview", blurb: "Queue health, email delivery and recent activity." },
   users: { title: "Accounts", blurb: "Everyone who can sign in. Roles set here override the directory." },
   outbox: { title: "Mail queue", blurb: "Every notification the system has queued, sent or suppressed." },
+  schedules: { title: "Schedules", blurb: "Tickets that create themselves on a date or a cadence." },
 };
 
-export default function Settings({ section: routeSection, onSection, onClose }) {
+export default function Settings({ meta, section: routeSection, onSection, onClose }) {
   const [data, setData] = useState(null);
   const active = routeSection || "overview";
   const setActive = onSection;
@@ -99,7 +102,8 @@ export default function Settings({ section: routeSection, onSection, onClose }) 
         {saved && !dirty && <div className="banner">Saved.</div>}
 
         {adminView && (active === "overview" ? <AdminDashboard />
-          : active === "users" ? <AdminUsers /> : <AdminOutbox />)}
+          : active === "users" ? <AdminUsers />
+          : active === "schedules" ? <Schedules meta={meta} /> : <AdminOutbox />)}
 
         {!adminView && <div className="setbody">
           {section.fields.map((f) => (

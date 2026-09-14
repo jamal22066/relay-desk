@@ -248,7 +248,7 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 .pill.ok-pill { background: var(--teal-soft); color: #14514e; }
 
 /* the mail queue needs more room than the settings forms */
-.setpane:has(.mailqueue) > * { max-width: none; }
+.setpane:has(.widepane) > * { max-width: none; }
 .mailqueue .utable { table-layout: fixed; }
 .mailqueue .utable th:nth-child(1) { width: 90px; }
 .mailqueue .utable th:nth-child(2) { width: 210px; }
@@ -278,3 +278,16 @@ button.brand { display: flex; align-items: center; gap: 9px; }
   margin-bottom: 8px; border: 1px solid #e3b0aa; border-radius: 5px;
   padding: 9px 12px;
 }
+
+.hint.bad { color: var(--p1); }
+
+/* schedules: narrow the fixed columns so the actions are not clipped */
+.schedules .utable { table-layout: fixed; width: 100%; }
+.schedules .utable th:nth-child(1) { width: 26%; }
+.schedules .utable th:nth-child(2) { width: 90px; }
+.schedules .utable th:nth-child(3) { width: 130px; }
+.schedules .utable th:nth-child(4) { width: 130px; }
+.schedules .utable th:nth-child(5) { width: 60px; }
+.schedules .utable th:nth-child(6) { width: 110px; }
+.schedules .utable th:nth-child(7) { width: 210px; }
+.schedules .utable td { word-break: break-word; vertical-align: top; }

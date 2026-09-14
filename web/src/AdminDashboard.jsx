@@ -62,6 +62,18 @@ export default function AdminDashboard() {
         </p>
       )}
 
+      <div className="minehead" style={{ marginTop: 26 }}>Schedules</div>
+      <div className="statrow">
+        <Stat label="Active" value={d.schedules?.active ?? 0} />
+        <Stat label="Failed" value={d.schedules?.failed ?? 0}
+              tone={d.schedules?.failed ? "bad" : null} />
+      </div>
+      {d.schedules?.failed > 0 && (
+        <p className="hint">
+          A failed schedule stops firing until it is resumed.
+        </p>
+      )}
+
       <div className="minehead" style={{ marginTop: 26 }}>Accounts</div>
       <div className="statrow">
         <Stat label="Total" value={d.users.total} />

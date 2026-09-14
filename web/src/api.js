@@ -27,6 +27,19 @@ export const api = {
     if (q) p.set("q", q);
     return fetch(`/api/tickets?${p}`, { credentials: "same-origin" }).then(j);
   },
+  listSchedules: () =>
+    fetch("/api/schedules", { credentials: "same-origin" }).then(j),
+  createSchedule: (body) => post("/api/schedules", body),
+  patchSchedule: (id, body) =>
+    fetch(`/api/schedules/${id}`, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(j),
+  deleteSchedule: (id) =>
+    fetch(`/api/schedules/${id}`, { method: "DELETE", credentials: "same-origin" }).then(j),
+  runScheduleNow: (id) => post(`/api/schedules/${id}/run-now`, {}),
   validateAttachments: (files) => {
     const fd = new FormData();
     for (const f of files) fd.append("files", f);

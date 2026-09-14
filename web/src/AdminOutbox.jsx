@@ -42,7 +42,7 @@ export default function AdminOutbox() {
   if (!data) return <div className="setbody">{err || "Loading…"}</div>;
 
   return (
-    <div className="setbody mailqueue">
+    <div className="setbody widepane mailqueue">
       {err && <div className="errbar" style={{ marginBottom: 14 }}>{err}</div>}
       {note && <div className="banner">{note}</div>}
 
