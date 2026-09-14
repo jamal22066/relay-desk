@@ -1,8 +1,9 @@
 # Relay Desk
 
 A self-hosted ticketing system for SaaS product support and workplace IT.
-FastAPI and PostgreSQL behind a React frontend, with LDAP authentication,
-email notifications and a business-hours SLA engine.
+FastAPI and PostgreSQL behind a React frontend, with LDAP authentication, email
+notifications, file attachments, a business-hours SLA engine and scheduled
+ticket creation.
 
 Running at **[relaydesk.us](https://relaydesk.us)**.
 
@@ -27,32 +28,52 @@ and never leave the building.
 **Tickets** — impact-based priority at intake (customers describe how blocked
 they are, not P-levels), threaded replies, internal notes, soft deletion that
 leaves a tombstone rather than erasing history, and search across ref, subject,
-requester, org and category.
+requester, org and category. Every ticket has a bookmarkable URL at `/t/TKT-1234`.
+
+**Attachments** — images, PDFs and plain text, up to 10 MB and five files at a
+time. The content type is determined by sniffing the bytes, not by the
+extension or the client's `Content-Type`, and files are stored under generated
+names. Downloads are served with `Content-Disposition: attachment` and a
+restrictive CSP, so an uploaded document cannot execute against a viewer's
+session. Attachments hang off events rather than tickets, so a file on an
+internal note inherits that note's visibility.
 
 **Service levels** — deadlines are computed and stored per ticket. Optional
 business-hours mode counts only working time, skipping evenings, weekends and a
 configurable holiday list. Optionally pauses while a ticket waits on the
 customer, so your team is not measured against someone else's response time.
 
+**Scheduled tickets** — a ticket template that materialises on a date or a
+cadence. The lead-time case ("open a ticket 30 days before the maintenance
+window") is expressed by setting the first run to the computed date. Each
+generated ticket carries a system event naming the schedule, which cannot be
+deleted — so the audit trail shows it was created automatically rather than
+filed by a person after the fact. A schedule that fails stops firing and emails
+the administrators, because a compliance reminder that goes quiet is worse than
+one that visibly breaks.
+
 **Authentication** — local accounts with argon2 hashing and email verification,
 plus optional per-user LDAP against FreeIPA or 389 Directory Server. Roles come
 from directory group membership; a local override wins over the directory.
-Sessions are JWTs in an httpOnly cookie.
+Sessions are JWTs in an httpOnly cookie. Login is rate limited per source IP and
+per target account; registration is rate limited per IP.
 
 **Notifications** — every event queues a row in an outbox table, drained by a
 worker with exponential backoff. Customers hear about replies, resolutions and
-receipts; staff hear about new tickets, assignments and customer replies.
-Internal notes email nobody.
+receipts; staff hear about new tickets, assignments, customer replies, signups,
+confirmed addresses and failed schedules. Internal notes email nobody.
 
 **Admin area** — queue and delivery health at a glance, account management
-(roles, activation, verification, deletion), and a browsable mail queue showing
-exactly what was sent, to whom, and why anything was not.
+(roles, activation, verification, deletion), schedule management, and a
+browsable mail queue showing exactly what was sent, to whom, and why anything
+was not.
 
 ---
 
 ## Running it locally
 
-Requires PostgreSQL 14+, Python 3.10+, Node 20+.
+Requires PostgreSQL 14+, Python 3.10+, Node 20+, and `libmagic1`
+(`apt install libmagic1`) for attachment type detection.
 
 ### Database
 
@@ -71,6 +92,9 @@ Requires PostgreSQL 14+, Python 3.10+, Node 20+.
     python scripts/seed_users.py  # optional demo accounts
     uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
+Set `UPLOAD_DIR` in `.env` to a writable path — the default
+(`/var/lib/relay/uploads`) suits the container, not a development machine.
+
 API docs at `http://127.0.0.1:8000/docs` (suppressed when `ENVIRONMENT=production`).
 
 ### Frontend
@@ -80,14 +104,14 @@ API docs at `http://127.0.0.1:8000/docs` (suppressed when `ENVIRONMENT=productio
 Open `http://127.0.0.1:5173`. Vite proxies `/api` to the backend, so both share
 an origin and CORS never applies in development.
 
-### Mail worker
+### Background work
 
-Notifications queue whether or not the worker runs; nothing sends until it does.
+Neither runs on its own; notifications queue and schedules wait until they do.
 
-    python scripts/mail_worker.py           # continuous
-    python scripts/mail_worker.py --once    # single pass
+    python scripts/mail_worker.py           # continuous; --once for a single pass
+    python scripts/run_schedules.py         # fires anything due, then exits
 
-Under systemd so it survives restarts — see `deploy/relay-mail.service.example`.
+Under systemd in production — see `deploy/`.
 
 ---
 
@@ -131,8 +155,8 @@ when set, otherwise the environment, otherwise a declared default. Administrator
 edit them at `/settings`; secrets are sealed at rest with a Fernet key derived
 from `SECRET_KEY` and never returned to the browser.
 
-Two keys stay in `.env` permanently, because the app cannot bootstrap without
-them: `DATABASE_URL` and `SECRET_KEY`.
+Three keys stay in `.env` permanently, because the app cannot bootstrap without
+them: `DATABASE_URL`, `SECRET_KEY` and `UPLOAD_DIR`.
 
 **Rotating `SECRET_KEY` invalidates every session and makes stored secrets
 unreadable.** The app falls back to `.env` for those, but anything entered
@@ -161,6 +185,9 @@ Three things autogenerate gets wrong, all of which have bitten this project:
   needed a hand-written `drop_constraint` / `create_check_constraint` pair.
 - **`NOT NULL` columns fail on existing rows** without a `server_default`. Add
   the column with one, then drop it so future inserts use the model default.
+
+Data migrations run after the columns they touch exist — obvious in hindsight,
+easy to get wrong when appending to a generated file.
 
 ---
 
@@ -200,7 +227,21 @@ Deploying an update:
     podman-compose down && podman-compose up -d
 
 `podman-compose` does not reliably detect a changed image, so `down` then `up`
-is the dependable pattern. The `pgdata` volume survives it.
+is the dependable pattern. Named volumes survive it.
+
+### systemd units
+
+All run as the service user, not root. Templates in `deploy/`.
+
+| Unit | Purpose |
+|---|---|
+| `relay-desk.service` | Brings the compose stack up at boot |
+| `relay-mail.service` | Drains the notification outbox continuously |
+| `relay-schedules.timer` | Fires due schedules hourly |
+| `relay-backup.timer` | Backs up the database and uploads every six hours |
+
+Boot persistence uses *user* units plus `loginctl enable-linger`, so the stack
+returns after a reboot without a login session.
 
 Two things that will confuse you otherwise:
 
@@ -209,26 +250,48 @@ Two things that will confuse you otherwise:
 - **`podman-compose` needs `XDG_RUNTIME_DIR`** set when entered via `su`, or it
   looks in the wrong state directory and reports containers that do not exist.
 
-Boot persistence uses a systemd *user* unit plus `loginctl enable-linger`, so
-the stack returns after a reboot without a login session.
+Reading the journal as the service user needs membership of `systemd-journal`.
 
-Backups are `podman exec <db-container> pg_dump -U relay relaydesk > backup.sql`
-— the data lives in a named volume, not on the host filesystem.
+### Backups
+
+`scripts/backup.sh` writes a compressed `pg_dump` and a tar of the uploads
+volume to `~/backups`, keeping 30 days of database dumps and the eight most
+recent upload archives. It refuses to report success on a dump under 1 KB, since
+a partial `pg_dump` still produces a valid-looking gzip.
+
+**Backups are local only.** They protect against application mistakes, a bad
+migration or accidental deletion — not against losing the host. Copy them
+elsewhere if the data matters.
+
+Verify a backup by restoring it rather than trusting it:
+
+    podman exec relay-desk_db_1 psql -U relay -d postgres -c "CREATE DATABASE restoretest OWNER relay;"
+    zcat ~/backups/relaydesk-*.sql.gz | podman exec -i relay-desk_db_1 psql -U relay -d restoretest
+    podman exec relay-desk_db_1 psql -U relay -d restoretest -c "SELECT count(*) FROM tickets;"
+    podman exec relay-desk_db_1 psql -U relay -d postgres -c "DROP DATABASE restoretest;"
 
 ---
 
 ## Known gaps
 
+- **Backups are local only and unmonitored.** A failed backup logs to the
+  journal and otherwise goes unnoticed.
 - **No password reset.** A local user who forgets their password needs an
   administrator and a SQL statement.
 - **Rate limiting is in-memory and per-process.** Adequate for a single
   instance; a fleet needs Redis or equivalent.
 - **`style-src 'unsafe-inline'`** remains in the CSP because components use
   inline styles for priority colours. A real weakening, not a false positive.
-- **No attachments.** Support tickets frequently need a screenshot or a log.
+- **Uploaded files are not scanned for malware.** Type is validated, content is
+  not. Files are served as downloads rather than rendered, which bounds but does
+  not eliminate the risk.
+- **Recurrence treats a month as 30 days.** Calendar-correct month arithmetic
+  needs a policy for the 31st in February; "about a month later" is the honest
+  intent for a maintenance reminder.
 - **Search is `ILIKE` only.** Fine for hundreds of tickets, not for tens of
   thousands.
-- **Delivery latency up to 30 seconds** — the worker polls rather than listening.
+- **Notification delivery latency is up to 30 seconds** and schedules fire
+  hourly — both poll rather than listen.
 - **`scripts/smoke.sh` and `scripts/delete_test.sh` are stale.** They pass
   `?email=` to portal endpoints that now derive identity from the session, so
   those calls fail regardless of the address used.
@@ -265,7 +328,9 @@ PKCS#7 decryption. This application uses Fernet only.
 | Sessions | PyJWT, HS256 in an httpOnly cookie |
 | Directory | ldap3, FreeIPA / 389 DS |
 | Secrets at rest | cryptography (Fernet) |
+| File type detection | python-magic (libmagic) |
 | Frontend | React 18, Vite |
 | Typography | IBM Plex Sans / Mono |
 | Containers | Podman (rootless), podman-compose |
+| Scheduling | systemd timers |
 | Ingress | Cloudflare Tunnel |
