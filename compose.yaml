@@ -27,6 +27,8 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      - uploads:/var/lib/relay/uploads
     restart: unless-stopped
 
   worker:
@@ -44,3 +46,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

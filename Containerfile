@@ -13,7 +13,7 @@ FROM docker.io/library/python:3.12-slim
 
 # psycopg needs libpq at runtime; build tools are not needed for the wheels we use
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libpq5 curl \
+ && apt-get install -y --no-install-recommends libpq5 curl libmagic1 \
  && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 10001 relay
@@ -30,6 +30,8 @@ COPY entrypoint.sh /entrypoint.sh
 
 # built SPA, served by FastAPI as static files
 COPY --from=web /build/dist ./static
+
+RUN mkdir -p /var/lib/relay/uploads && chown -R relay:relay /var/lib/relay
 
 USER relay
 EXPOSE 8080
