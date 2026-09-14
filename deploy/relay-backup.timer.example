@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up Relay Desk every six hours
+
+[Timer]
+OnCalendar=00/6:15
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

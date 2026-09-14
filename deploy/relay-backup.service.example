@@ -1,0 +1,10 @@
+[Unit]
+Description=Relay Desk backup
+After=relay-desk.service
+Requires=relay-desk.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/relay-desk/scripts/backup.sh
+StandardOutput=journal
+StandardError=journal
