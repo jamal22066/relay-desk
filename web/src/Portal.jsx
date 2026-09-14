@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { AttachmentList, AttachmentPicker } from "./Attachments";
 import { IMPACT, OPEN_STATUSES, initials, priColor, stamp } from "./util";
 
 const blank = (meta) => ({
@@ -18,6 +19,7 @@ export default function Portal({ me, initialRef }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [openRef, setOpenRef] = useState(initialRef ?? null);
+  const [newFiles, setNewFiles] = useState([]);
 
   const load = () => api.portalList().then(setMine).catch((e) => setErr(e.message));
 
@@ -40,9 +42,16 @@ export default function Portal({ me, initialRef }) {
     if (!valid || busy) return;
     setBusy(true);
     try {
+      // validate before filing, so a bad file does not create a ticket
+      if (newFiles.length > 0) await api.validateAttachments(newFiles);
+
       const t = await api.create(f);
+      if (newFiles.length > 0 && t.events.length > 0) {
+        await api.uploadAttachments(t.ref, t.events[0].id, newFiles);
+      }
       setFiled(t.ref);
       setF(blank(meta));
+      setNewFiles([]);
       await load();
       setErr(null);
     } catch (e) {
@@ -115,6 +124,7 @@ export default function Portal({ me, initialRef }) {
             <button className="btn teal" disabled={!valid || busy} onClick={submit}>
               {busy ? "Filing…" : "File ticket"}
             </button>
+            <AttachmentPicker files={newFiles} onChange={setNewFiles} disabled={busy} />
             {!valid && <span className="hint">A summary and a description are needed.</span>}
           </div>
         </div>
@@ -146,15 +156,27 @@ export default function Portal({ me, initialRef }) {
 function Thread({ t, me, onChanged }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const events = [
-    { id: "root", at: t.created_at, actor: t.requester, kind: "comment", body: t.body },
-    ...t.events,
-  ];
+  const [staged, setStaged] = useState([]);
+  const [err, setErr] = useState(null);
+  const events = t.events;
 
   const send = async () => {
     setBusy(true);
-    try { await api.portalReply(t.ref, draft.trim()); setDraft(""); await onChanged(); }
-    finally { setBusy(false); }
+    setErr(null);
+    try {
+      if (staged.length > 0) await api.validateAttachments(staged);
+
+      const updated = await api.portalReply(t.ref, draft.trim() || "(attachment)");
+      if (staged.length > 0) {
+        const evId = updated.events[updated.events.length - 1].id;
+        await api.uploadAttachments(t.ref, evId, staged);
+      }
+      setDraft("");
+      setStaged([]);
+      await onChanged();
+    } catch (e) {
+      setErr(e.message);
+    } finally { setBusy(false); }
   };
 
   const remove = async (id) => {
@@ -174,7 +196,7 @@ function Thread({ t, me, onChanged }) {
               <div className="mhead">
                 <span className="mname">{e.actor}</span>
                 <span className="mtime mono">{stamp(e.at)}</span>
-                {e.id !== "root" && !e.deleted_at && e.actor === me.display_name && (
+                {!e.is_original && !e.deleted_at && e.actor === me.display_name && (
                   <button className="msgact" disabled={busy} onClick={() => remove(e.id)}>Remove</button>
                 )}
               </div>
@@ -183,21 +205,32 @@ function Thread({ t, me, onChanged }) {
                   Message removed by {e.deleted_by} on {stamp(e.deleted_at)}
                 </div>
               ) : (
-                <div className="mtext">{e.body}</div>
+                <>
+                  <div className="mtext">{e.body}</div>
+                  <AttachmentList items={e.attachments}
+                                  canRemove={e.actor === me.display_name}
+                                  onRemoved={onChanged} />
+                </>
               )}
             </div>
           </div>
         ))}
       </div>
       {OPEN_STATUSES.includes(t.status) && (
+        <>
+        {err && <div className="errbar attacherr">{err}</div>}
         <div className="replybox">
           <textarea value={draft} disabled={busy} placeholder="Add something we should know"
                     onChange={(e) => setDraft(e.target.value)} />
           <div className="replyfoot">
+            <AttachmentPicker files={staged} onChange={setStaged} disabled={busy} />
             <div className="spacer" />
-            <button className="btn teal" disabled={busy || !draft.trim()} onClick={send}>Send reply</button>
+            <button className="btn teal"
+                    disabled={busy || (!draft.trim() && staged.length === 0)}
+                    onClick={send}>Send reply</button>
           </div>
         </div>
+        </>
       )}
     </>
   );

@@ -27,6 +27,27 @@ export const api = {
     if (q) p.set("q", q);
     return fetch(`/api/tickets?${p}`, { credentials: "same-origin" }).then(j);
   },
+  validateAttachments: (files) => {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    return fetch("/api/attachments/validate", {
+      method: "POST", credentials: "same-origin", body: fd,
+    }).then(j);
+  },
+  uploadAttachments: (ref, eventId, files) => {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    return fetch(`/api/tickets/${ref}/events/${eventId}/attachments`, {
+      method: "POST",
+      credentials: "same-origin",
+      body: fd,           // no content-type header: the browser sets the boundary
+    }).then(j);
+  },
+  deleteAttachment: (id) =>
+    fetch(`/api/attachments/${id}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+    }).then(j),
   lookupUsers: (q) =>
     fetch(`/api/users/lookup?q=${encodeURIComponent(q || "")}`,
           { credentials: "same-origin" }).then(j),

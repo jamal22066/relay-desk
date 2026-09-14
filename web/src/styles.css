@@ -257,3 +257,24 @@ button.brand { display: flex; align-items: center; gap: 9px; }
 .mailqueue .utable th:nth-child(6) { width: 90px; }
 .mailqueue .utable th:nth-child(7) { width: 110px; }
 .mailqueue .utable td { word-break: break-word; }
+
+.attachrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.attachrow.staged { margin: 0 0 0 4px; }
+.attach {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 3px 8px; font-size: 12.5px; background: var(--panel);
+}
+.attach a { color: var(--teal); text-decoration: none; }
+.attach a:hover { text-decoration: underline; }
+.attach .hint { margin: 0; }
+.attachx {
+  border: 0; background: transparent; padding: 0 0 0 2px;
+  font-size: 15px; line-height: 1; color: var(--ink3);
+}
+.attachx:hover { color: var(--p1); }
+
+.errbar.attacherr {
+  margin-bottom: 8px; border: 1px solid #e3b0aa; border-radius: 5px;
+  padding: 9px 12px;
+}

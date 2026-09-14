@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     ldap_attr_email: str = "mail"
     ldap_tls_verify: bool = True
 
+    upload_dir: str = "/var/lib/relay/uploads"
+    upload_max_bytes: int = 10 * 1024 * 1024
+    upload_max_files: int = 5
+
     smtp_enabled: bool = False
     smtp_host: str = ""
     smtp_port: int = 587

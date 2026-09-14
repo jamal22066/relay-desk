@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -123,6 +123,14 @@ def create_ticket(
     t.due_at = Calendar(db).deadline(utcnow(), t.priority)
     db.add(t)
     db.flush()
+
+    from app.models import Event
+    db.add(Event(
+        ticket_id=t.id, at=t.created_at, actor=t.requester,
+        kind="comment", body=t.body, is_original=True,
+    ))
+    db.flush()
+
     notify.on_new_ticket(db, t)
     db.commit()
     db.refresh(t)
@@ -226,3 +234,165 @@ def portal_delete_event(ref: str, event_id: int, me: UserModel = Depends(current
     d = TicketDetail.model_validate(t)
     d.events = [e for e in d.events if e.kind == "comment"]
     return d
+
+
+# ------------------------------------------------------------- attachments
+
+
+def _attachment_or_404(db, attachment_id: int, me):
+    """Resolve an attachment, enforcing the ticket's own access rules.
+
+    Staff see everything. A customer sees only their own ticket, and only
+    public comments on it — so a file on an internal note is invisible by the
+    same mechanism that hides the note.
+    """
+    from app.models import Attachment, Event
+
+    att = db.get(Attachment, attachment_id)
+    if att is None or att.deleted_at is not None:
+        raise HTTPException(404, "No such attachment")
+
+    ev = db.get(Event, att.event_id)
+    if ev is None:
+        raise HTTPException(404, "No such attachment")
+
+    t = db.get(Ticket, ev.ticket_id)
+    if t is None:
+        raise HTTPException(404, "No such attachment")
+
+    if not me.is_staff:
+        if t.email != me.email or ev.kind != "comment":
+            raise HTTPException(404, "No such attachment")
+
+    return att
+
+
+@router.post("/tickets/{ref}/events/{event_id}/attachments")
+async def upload_attachment(
+    ref: str,
+    event_id: int,
+    files: list[UploadFile] = File(...),
+    me: UserModel = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    from app.config import settings as env
+    from app.models import Attachment, Event
+    from app.storage import UploadRejected, check, save
+
+    t = services.get_or_404(db, ref)
+    if not t:
+        raise HTTPException(404, f"No ticket {ref}")
+    if not me.is_staff and t.email != me.email:
+        raise HTTPException(404, f"No ticket {ref}")
+
+    ev = db.get(Event, event_id)
+    if ev is None or ev.ticket_id != t.id:
+        raise HTTPException(404, "No such message on this ticket")
+    if not me.is_staff and (ev.kind != "comment" or ev.actor != me.display_name):
+        raise HTTPException(403, "You can only attach files to your own messages")
+
+    if len(files) > env.upload_max_files:
+        raise HTTPException(422, f"At most {env.upload_max_files} files at a time.")
+
+    saved = []
+    for f in files:
+        data = await f.read()
+        try:
+            content_type, ext = check(data, f.filename or "file")
+        except UploadRejected as e:
+            raise HTTPException(422, str(e))
+
+        stored = save(data, ext)
+        att = Attachment(
+            event_id=ev.id,
+            stored_name=stored,
+            original_name=(f.filename or "file")[:255],
+            content_type=content_type,
+            size_bytes=len(data),
+            uploaded_by=me.display_name,
+        )
+        db.add(att)
+        saved.append(att)
+
+    t.updated_at = utcnow()
+    db.commit()
+    for a in saved:
+        db.refresh(a)
+
+    return [
+        {
+            "id": a.id,
+            "original_name": a.original_name,
+            "content_type": a.content_type,
+            "size_bytes": a.size_bytes,
+        }
+        for a in saved
+    ]
+
+
+@router.get("/attachments/{attachment_id}")
+def download_attachment(
+    attachment_id: int,
+    me: UserModel = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import FileResponse
+
+    from app.storage import UploadRejected, path_for
+
+    att = _attachment_or_404(db, attachment_id, me)
+    try:
+        path = path_for(att.stored_name)
+    except UploadRejected as e:
+        raise HTTPException(404, str(e))
+
+    # served as a download, never rendered: an uploaded document cannot
+    # execute against the viewer's session
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=att.original_name,
+        headers={
+            "Content-Disposition": 'attachment; filename="%s"' % att.original_name,
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
+@router.delete("/attachments/{attachment_id}")
+def remove_attachment(
+    attachment_id: int,
+    me: UserModel = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    from app.models import utcnow as now
+    from app.storage import delete as delete_file
+
+    att = _attachment_or_404(db, attachment_id, me)
+    if not me.is_staff and att.uploaded_by != me.display_name:
+        raise HTTPException(403, "You can only remove files you uploaded.")
+
+    att.deleted_at = now()
+    db.commit()
+    delete_file(att.stored_name)
+    return {"ok": True, "detail": "Removed %s" % att.original_name}
+
+
+@router.post("/attachments/validate")
+async def validate_attachment(
+    files: list[UploadFile] = File(...),
+    me: UserModel = Depends(current_user),
+):
+    """Check files without storing anything, so the client can refuse before
+    posting a message it would then have to clean up."""
+    from app.storage import UploadRejected, check
+
+    for f in files:
+        data = await f.read()
+        try:
+            check(data, f.filename or "file")
+        except UploadRejected as e:
+            raise HTTPException(422, str(e))
+        await f.seek(0)
+    return {"ok": True}

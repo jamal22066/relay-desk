@@ -131,6 +131,8 @@ def delete_event(
         return None, "No such message on this ticket"
     if ev.kind == "system":
         return None, "System events are part of the audit trail and cannot be removed"
+    if ev.is_original:
+        return None, "The original description cannot be removed. Close the ticket instead."
     if ev.deleted_at is not None:
         return ev, None
     if as_requester and (ev.kind != "comment" or ev.actor != t.requester):

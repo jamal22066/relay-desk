@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { IMPACT } from "./util";
+import { AttachmentPicker } from "./Attachments";
 
 export default function NewTicket({ meta, onCreated, onCancel }) {
   const [q, setQ] = useState("");
@@ -12,6 +13,7 @@ export default function NewTicket({ meta, onCreated, onCancel }) {
   });
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]);
 
   useEffect(() => {
     const id = setTimeout(
@@ -28,7 +30,12 @@ export default function NewTicket({ meta, onCreated, onCancel }) {
     if (!valid || busy) return;
     setBusy(true);
     try {
+      if (files.length > 0) await api.validateAttachments(files);
+
       const t = await api.create({ ...f, requester_email: who.email });
+      if (files.length > 0 && t.events.length > 0) {
+        await api.uploadAttachments(t.ref, t.events[0].id, files);
+      }
       onCreated(t.ref);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -118,6 +125,7 @@ export default function NewTicket({ meta, onCreated, onCancel }) {
         <button className="btn teal" disabled={!valid || busy} onClick={submit}>
           {busy ? "Creating…" : "Create ticket"}
         </button>
+        <AttachmentPicker files={files} onChange={setFiles} disabled={busy} />
         <button className="btn ghost" onClick={onCancel}>Cancel</button>
         {!who && <span className="hint">Choose a requester first.</span>}
       </div>

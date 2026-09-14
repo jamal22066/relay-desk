@@ -102,11 +102,21 @@ class Event(Base):
     actor: Mapped[str] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(16))
     body: Mapped[str] = mapped_column(Text)
+    # the customer's original description. Protected from deletion: a ticket
+    # whose problem statement can vanish is worse than one you simply close.
+    is_original: Mapped[bool] = mapped_column(Boolean, default=False)
 
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     deleted_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    attachments: Mapped[list["Attachment"]] = relationship(
+        primaryjoin="and_(Event.id == Attachment.event_id, "
+                    "Attachment.deleted_at.is_(None))",
+        lazy="selectin",
+        viewonly=True,
+    )
 
     ticket: Mapped["Ticket"] = relationship(back_populates="events")
 
@@ -222,3 +232,29 @@ class Setting(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     updated_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class Attachment(Base):
+    """A file attached to an event.
+
+    Hanging off the event rather than the ticket means an attachment on an
+    internal note inherits that note's visibility for free.
+    """
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+
+    # the stored file is named by this, never by anything the client supplied
+    stored_name: Mapped[str] = mapped_column(String(64), unique=True)
+    original_name: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(120))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+
+    uploaded_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

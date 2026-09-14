@@ -18,14 +18,26 @@ Status = Literal["New", "Open", "Waiting on customer", "Resolved", "Closed"]
 Track = Literal["saas", "it"]
 
 
+class AttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_name: str
+    content_type: str
+    size_bytes: int
+    uploaded_by: str
+
+
 class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    attachments: list[AttachmentOut] = []
     at: datetime
     actor: str
     kind: str
     body: str
+    is_original: bool = False
     deleted_at: datetime | None = None
     deleted_by: str | None = None
 

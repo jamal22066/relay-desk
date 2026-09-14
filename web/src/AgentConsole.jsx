@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import NewTicket from "./NewTicket";
+import { AttachmentList, AttachmentPicker } from "./Attachments";
 import { OPEN_STATUSES, countdown, initials, priColor, relative, stamp } from "./util";
 
 const VIEWS = [
@@ -129,10 +130,11 @@ export default function AgentConsole({ meta, initialRef }) {
 function Detail({ t, meta, onChanged }) {
   const [draft, setDraft] = useState("");
   const [internal, setInternal] = useState(false);
+  const [staged, setStaged] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
-  useEffect(() => { setDraft(""); setInternal(false); setErr(null); }, [t.ref]);
+  useEffect(() => { setDraft(""); setInternal(false); setStaged([]); setErr(null); }, [t.ref]);
 
   const run = async (fn) => {
     setBusy(true);
@@ -146,16 +148,33 @@ function Detail({ t, meta, onChanged }) {
     run(() => api.deleteEvent(t.ref, id));
   };
 
-  const send = () => {
+  const send = async () => {
     const body = draft.trim();
-    if (!body) return;
-    run(() => api.addEvent(t.ref, body, internal ? "note" : "comment")).then(() => setDraft(""));
+    if (!body && staged.length === 0) return;
+    setBusy(true);
+    try {
+      // check the files before posting anything, so a rejected upload cannot
+      // leave an orphaned message behind
+      if (staged.length > 0) await api.validateAttachments(staged);
+
+      const updated = await api.addEvent(
+        t.ref, body || "(attachment)", internal ? "note" : "comment");
+      if (staged.length > 0) {
+        const evId = updated.events[updated.events.length - 1].id;
+        await api.uploadAttachments(t.ref, evId, staged);
+      }
+      onChanged(await api.get(t.ref));
+      setDraft("");
+      setStaged([]);
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const events = [
-    { id: "root", at: t.created_at, actor: t.requester, kind: "comment", body: t.body },
-    ...t.events,
-  ];
+  const events = t.events;
   const hours = meta.priorities.find((p) => p.id === t.priority).hours;
 
   return (
@@ -211,7 +230,7 @@ function Detail({ t, meta, onChanged }) {
                 <span className="mname">{e.actor}</span>
                 <span className="mtime mono">{stamp(e.at)}</span>
                 {e.kind === "note" && !e.deleted_at && <span className="notetag">Internal, not sent</span>}
-                {e.id !== "root" && !e.deleted_at && (
+                {!e.is_original && !e.deleted_at && (
                   <button className="msgact" disabled={busy}
                           onClick={() => remove(e.id)}>Remove</button>
                 )}
@@ -221,7 +240,11 @@ function Detail({ t, meta, onChanged }) {
                   Message removed by {e.deleted_by} on {stamp(e.deleted_at)}
                 </div>
               ) : (
-                <div className="mtext">{e.body}</div>
+                <>
+                  <div className="mtext">{e.body}</div>
+                  <AttachmentList items={e.attachments} canRemove
+                                  onRemoved={async () => onChanged(await api.get(t.ref))} />
+                </>
               )}
             </div>
           </div>
@@ -229,6 +252,7 @@ function Detail({ t, meta, onChanged }) {
       </div>
 
       <div className="reply">
+        {err && <div className="errbar attacherr">{err}</div>}
         <div className="replybox">
           <textarea value={draft} disabled={busy}
                     placeholder={internal ? "Leave a note for the team" : `Reply to ${t.requester}`}
@@ -238,9 +262,10 @@ function Detail({ t, meta, onChanged }) {
               <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
               Internal note
             </label>
+            <AttachmentPicker files={staged} onChange={setStaged} disabled={busy} />
             <div className="spacer" />
             <button className={"btn" + (internal ? " ghost" : " teal")}
-                    disabled={busy || !draft.trim()} onClick={send}>
+                    disabled={busy || (!draft.trim() && staged.length === 0)} onClick={send}>
               {internal ? "Save note" : "Send reply"}
             </button>
           </div>
