@@ -1,28 +1,28 @@
 # Security review
 
-**Relay Desk** · September 2026
-Reviewer: Jamal Nasir · Scope: full application and its production deployment
+**Relay Desk** · Second review, September 2026
+Reviewer: Jamal Nasir · Scope: full application, its production deployment, and
+the attachment, scheduling and backup subsystems added since the first review.
 Self-assessed. No independent review has been performed.
 
 ---
 
 ## Summary
 
-A security review of Relay Desk covering dependency vulnerabilities, static
-analysis, dynamic scanning, manual review of the authorisation model, and the
-production deployment on a public domain.
+The first review covered authentication, authorisation and transport. This one
+re-tests those and adds the surface introduced since: file uploads, scheduled
+ticket creation, and backups.
 
-Five classes of issue were found and fixed: a broken authorisation boundary that
-allowed customers to read internal notes, an unlimited login endpoint, missing
-HTTP security headers, outdated cryptographic dependencies, and unverified email
-addresses that made outbound mail an abuse vector. A further set of advisories
-was assessed and deferred with reasoning recorded.
+Seven classes of issue have been found and fixed across both reviews. Two
+findings in this round were introduced by the project's own dependency
+management rather than by feature work, which is worth noting: the most recent
+vulnerability was self-inflicted by a version pin.
 
-The most useful finding is methodological. Automated scanning found zero
-application-logic issues across two ZAP runs and 499 Semgrep rules. The one
-genuine vulnerability in this codebase was an authorisation flaw, found by
-reading the code and confirmed by a purpose-written test. Scanners did not and
-structurally could not find it.
+The methodological finding from the first review holds and strengthened.
+Automated scanning again found zero application-logic issues. Both real findings
+this round came from forming a hypothesis about a specific code path and
+measuring it — one hypothesis was confirmed, one was wrong, and the measurement
+is what distinguished them.
 
 ---
 
@@ -35,328 +35,316 @@ structurally could not find it.
 | Semgrep OSS | 1.176.1 | Static analysis, 499 rules |
 | ZAP | 2.17.0 | Dynamic scanning, authenticated and unauthenticated |
 
-All free and reproducible via `./scripts/audit.sh`. Semgrep and pip-audit are
-installed through `pipx`, deliberately outside the application virtualenv — see
-§7.1.
+Reproducible via `./scripts/audit.sh`. Semgrep and pip-audit install through
+`pipx`, outside the application virtualenv — see §9.1.
 
 ---
 
-## 1. Authorisation boundary (Critical — fixed)
+## Findings this round
 
-**Found:** manual review during development.
+### 1. Quadratic Range header parsing on attachment downloads (High — fixed)
 
-The customer portal filtered internal notes out of ticket threads in the React
-component. The agent API endpoint, which returned the unfiltered thread, had no
-authentication at all. A customer — or anyone who could reach the API — could
-request `/api/tickets/{ref}` directly and receive every internal note on the
-ticket.
+**Found:** by inspecting which newly-added code paths touched dependencies with
+open advisories, then measuring.
 
-The filtering worked in practice only because the portal *component* called the
-portal endpoint. Nothing enforced that choice.
+`PYSEC-2026-1942` describes quadratic-time Range header parsing in Starlette's
+`FileResponse`. The attachment download endpoint returns a `FileResponse`, so
+the advisory became reachable the moment attachments shipped. It did not apply
+before.
 
-**Fixed by moving the boundary from the client to the server:**
+Measured against a 70-byte attachment:
 
-- Agent endpoints require the agent or admin role via a FastAPI dependency.
-  Customers receive 403.
-- Portal endpoints derive the customer's identity from the session rather than
-  from a query parameter, so one customer cannot request another's tickets by
-  guessing an email address.
-- Note filtering happens during serialisation, not in the component.
-
-**Verified by `scripts/guard_test.sh`,** which asserts across three identities
-that anonymous callers get 401, customers get 403 on every agent endpoint,
-portal queries return only the session's own tickets, and no internal note
-appears in a portal response. It exits non-zero on any mismatch — see §7.2 for
-why that matters.
-
-**Generalisation:** a guard implemented in the client is not a guard. It is a
-convention that holds until someone uses `curl`.
-
----
-
-## 2. Unlimited authentication attempts (High — fixed)
-
-The login endpoint accepted unlimited attempts from any source. On a public
-domain that is credential stuffing with no friction, and server logs showed
-automated scanners probing the host within minutes of its DNS record appearing.
-
-**Fixed** with two independent budgets in `app/ratelimit.py`:
-
-| Scope | Budget | Purpose |
+| Range header size | Response time | Ratio |
 |---|---|---|
-| Source IP | 30 per 5 minutes | Stops one source enumerating many accounts |
-| Target email | 5 per 15 minutes | Stops one account being brute forced |
+| no Range header | 0.016 s | baseline |
+| 5,000 characters | 0.106 s | — |
+| 10,000 characters | 0.391 s | 3.7× |
+| 20,000 characters | 1.106 s | 2.8× |
+| 40,000 characters | 4.468 s | 4.0× |
 
-The split matters. A per-IP limit alone lets an attacker lock every user behind
-a shared NAT out of the service by exhausting the budget. With a per-email
-budget, an attack on one account trips that account's limit without affecting
-anyone else — verified by confirming a valid login still succeeds from an IP
-that has just been rate limited against a different address.
+Doubling the header roughly quadruples the time, confirming quadratic
+behaviour. A single request consumed 4.5 seconds of CPU against a 16 ms
+baseline — 280× amplification — and blocked the event loop throughout. A handful
+of concurrent requests would take the service down.
 
-Registration is also rate limited per IP (§4), and a successful login clears the
-counters so a legitimate user is not penalised for a typo.
+Any authenticated account can reach the endpoint, and registration is open, so
+the barrier is one email verification.
 
-**Known limitation:** the store is in-memory and per-process. Adequate for a
-single instance; a fleet needs Redis or equivalent.
+**Fixed** by stripping the Range header in the endpoint before `FileResponse`
+sees it. Attachments are small and partial downloads serve no purpose, so
+discarding the header costs nothing:
 
-Behind Cloudflare the client address arrives in `CF-Connecting-IP`. That header
-is trustworthy *only* because the tunnel means nothing reaches the application
-except via Cloudflare. If the app is ever exposed directly, a client can forge
-it and the limits become meaningless.
-
----
-
-## 3. Missing HTTP security headers (Medium — fixed)
-
-**Found:** ZAP 2.17.0, unauthenticated scan.
-
-| Alert | Risk | Instances |
-|---|---|---|
-| Content Security Policy header not set | Medium | 3 |
-| Missing anti-clickjacking header | Medium | 3 |
-| `X-Content-Type-Options` header missing | Low | 5 |
-
-Neither FastAPI nor Vite sets security headers by default. The application was
-therefore clickjackable and had no policy restricting script or style sources.
-
-**Fixed** by `app/headers.py`, a middleware setting `Content-Security-Policy`,
-`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and
-`Permissions-Policy` on every response including errors. Matching headers were
-added to the Vite dev server config.
-
-**Rescan** cleared all three. CSP-quality alerts replaced them:
-
-- `script-src unsafe-eval` and `unsafe-inline` — required by Vite's hot module
-  reload. Present only in the dev server config; production serves a static
-  build through FastAPI, whose CSP uses plain `script-src 'self'`.
-- `style-src unsafe-inline` — **genuine and unresolved.** Components use inline
-  `style={{...}}` for priority colours and ticket row spines. Removing it
-  requires moving every inline style into CSS classes. Residual risk is low,
-  since no untrusted content is rendered as markup, but this is a real weakening
-  of the policy rather than a false positive.
-
-Verified in production: the headers are present on responses served through the
-Cloudflare tunnel, not just locally.
-
----
-
-## 4. Unverified email as an abuse vector (High — fixed)
-
-Registration was open and created immediately usable accounts. Combined with
-outbound notifications, that made the server able to send mail to any address an
-anonymous party typed — a nuisance-mail vector carrying the sending domain's
-reputation, with the domain's daily send quota as the only ceiling.
-
-**Fixed** by requiring email verification for local accounts:
-
-- New local accounts start `email_verified = false` and cannot sign in.
-- A signed, 48-hour token is emailed to the address. The token is scoped to the
-  user id *and* their current address, so it stops working if the address
-  changes, and carries a `purpose` claim so a session token cannot be
-  substituted for it. Both properties are asserted in testing.
-- Directory accounts are exempt: the directory has already established the
-  address.
-- Accounts predating the feature were grandfathered as verified in the
-  migration, since each was created deliberately.
-
-Verification emails bypass the recipient allowlist by design — the address was
-just typed by whoever is registering, the content is fixed, and no ticket data
-is included. Registration is rate limited per IP to bound the abuse this
-permits, and a failed login on an unverified account resends the link, which the
-per-email budget caps at five in fifteen minutes.
-
-Only with verification in place was the allowlist widened to `*` in production.
-The ordering was deliberate: an open registration endpoint plus unrestricted
-outbound mail is the combination worth avoiding.
-
----
-
-## 5. Dependency vulnerabilities
-
-### 5.1 Fixed
-
-| Package | From | To | Rationale |
-|---|---|---|---|
-| `pyjwt` | 2.10.1 | 2.13.0 | Signs session and verification tokens |
-| `cryptography` | 44.0.0 | 46.0.7 | Seals stored SMTP and LDAP credentials |
-| `python-dotenv` | 1.0.1 | 1.2.2 | Config parsing |
-
-Verified after upgrade: application imports, Fernet seal/unseal round-trip
-(confirming stored secrets remained readable), and the full authentication test
-suite.
-
-The pyjwt upgrade surfaced a separate issue: **`SECRET_KEY` was 27 bytes, below
-the 32-byte minimum for HMAC-SHA256.** It signs session cookies and verification
-tokens, and derives the Fernet key sealing stored secrets. Rotated to 64 bytes
-in both environments. Doing so invalidates every session and makes previously
-sealed secrets unreadable — cheap at the time because nothing was yet stored
-through the settings page, and considerably more expensive later.
-
-### 5.2 Assessed and deferred
-
-**`cryptography` — four advisories remain open, none applicable.**
-
-`PYSEC-2026-3552` scopes to `pkcs7_decrypt_*`. `PYSEC-2026-3553` and `3554`
-concern the X.509 chain verifier and name constraints. `GHSA-537c-gmf6-5ccf`
-covers statically linked OpenSSL in the project's wheels.
-
-This application uses `Fernet` and nothing else from the library. SMTP TLS goes
-through Python's `ssl` module; LDAP through `ldap3`. None of the affected code
-paths are reachable.
-
-**`starlette` — advisories pinned behind FastAPI's `<0.42` constraint.**
-
-The significant one is `PYSEC-2026-161`: a malformed `Host` header causes
-`request.url.path` to differ from the routed path, so middleware performing
-path-based authorisation can be bypassed. `PYSEC-2026-248` is the same class via
-a request path lacking a leading `/`.
-
-Both require the application to make security decisions based on `request.url`.
-It does not. Authorisation runs as route dependencies, which execute after
-routing on the matched route. Verified: `grep -rn "request.url" app/` returns
-nothing, and the only middleware is CORS and the security-headers middleware.
-
-**Condition for revisiting: if path-based authorisation middleware is ever
-added, FastAPI and starlette must be upgraded first.** Recorded in the README.
-
----
-
-## 6. Scanning results
-
-### 6.1 Static analysis
-
-Semgrep OSS, 499 rules across `p/default`, `p/security-audit`, `p/react` and
-`p/python`, over 70 files: **zero findings.** `npm audit`: **zero
-vulnerabilities.**
-
-Both genuine, with a limit worth stating. Semgrep OSS matches patterns; it
-cannot reason about whether an authorisation dependency is attached to the right
-endpoints. It would not have found §1.
-
-### 6.2 Dynamic scanning
-
-**Unauthenticated:** ZAP found the three header issues in §3 and could not
-proceed past the login screen — correct behaviour, confirming the authentication
-gate holds against an anonymous crawler.
-
-**Authenticated:** an admin session cookie was injected into every request, with
-the endpoint list imported from the OpenAPI schema. Two runs, the second at
-`defaultStrength: insane` and `defaultThreshold: low`. **Two informational
-alerts, no findings.**
-
-**This is weak evidence and should not be read as a clean bill of health.** Both
-runs completed in roughly 75 seconds against a 90-minute budget. Inspecting the
-alert instances showed ZAP fuzzing HTTP headers and a few query parameters — the
-API takes JSON request bodies and path parameters, which ZAP's active scanner
-does not vary without additional configuration. Coverage was low.
-
-Two endpoints were excluded deliberately: `/api/auth/logout`, which would
-invalidate the scanning session, and `/api/admin/test/smtp`, which would send
-real email through a live relay.
-
-**What dynamic scanning could not test:** a scanner authenticated as a single
-identity cannot detect authorisation flaws, because it has nothing to compare
-against. It never attempts a customer's session against an agent endpoint. That
-is precisely the shape of §1.
-
----
-
-## 7. Process findings
-
-### 7.1 Security tooling broke the application
-
-Installing Semgrep into the application virtualenv upgraded `starlette` to
-1.6.0, along with `pydantic` and `pyjwt` — because Semgrep depends on `mcp`,
-which pulls a modern dependency tree. FastAPI 0.115.6 requires
-`starlette<0.42.0`. The application stopped importing:
-
-```
-TypeError: Router.__init__() got an unexpected keyword argument 'on_startup'
+```python
+request.scope["headers"] = [
+    (k, v) for k, v in request.scope["headers"] if k.lower() != b"range"
+]
 ```
 
-pip reported the conflict but installed anyway. Recovered with
-`pip install --force-reinstall -r requirements.txt`.
+**After the fix:** 40,000 characters returns in 0.028 s against a 0.013 s
+baseline, and the file still downloads at full length. A 160× improvement on the
+attack case.
 
-**Security tooling now installs through `pipx`, isolated from the application
-environment.** A consequence: `pip-audit` then audits *its own* environment
-unless pointed at the project explicitly, and reports "No known vulnerabilities
-found" — true and useless. `scripts/audit.sh` sets `PIPAPI_PYTHON_LOCATION` to
-avoid this, which is worth knowing because the misleading result looks exactly
-like success.
+This matters beyond the specific bug. The first review deferred the Starlette
+advisories on the grounds that none were reachable. That assessment was correct
+when written and became wrong when a feature shipped. **A deferred advisory is
+a claim about current code, not a permanent exemption.**
 
-### 7.2 A test that reported failures as passes
+### 2. Vulnerable multipart parser, self-inflicted (Medium — fixed)
 
-`guard_test.sh` printed observed status codes without comparing them to expected
-ones. After a database restore, four checks returned 401 where 403 was expected
-— a customer login was failing because that account's email had been changed —
-and the output looked plausible at a glance.
+`python-multipart` 0.0.20 carries six advisories. Two are reachable here:
 
-The script now asserts each expected code, prints `EXPECTED nnn` on mismatch,
-and exits non-zero.
+- `PYSEC-2026-3039` — unbounded multipart part headers, CPU exhaustion.
+  Directly on the upload path, since Starlette drives `MultipartParser`.
+- `PYSEC-2026-3036` / `3037` — `QuerystringParser` issues via `request.form()`.
+  Lower relevance, as this application uses JSON bodies throughout, but the
+  parser ships regardless.
 
-### 7.3 Duplicated endpoint registrations
+`PYSEC-2026-1852` and `PYSEC-2026-3040` do not apply: they require
+`UPLOAD_KEEP_FILENAME` or a direct `parse_form()` call, neither of which is
+used.
 
-An `assert count == 1` in a scripted edit revealed that a block of two endpoints
-had been appended to `app/api.py` twice. FastAPI registers the first and
-silently ignores the second, so nothing appeared broken and no test failed.
+**The cause is worth recording.** Semgrep's installation had pulled
+`python-multipart` 0.0.32 into the environment. When attachments were added, a
+`requirements.txt` pin of `==0.0.20` silently *downgraded* it. The vulnerability
+was introduced by the project's own dependency management, not inherited.
 
-Assertions in tooling found what testing did not.
+**Fixed** by pinning 0.0.32. Uploads verified working afterwards, since this is
+the parser they depend on.
 
-### 7.4 Credential exposure during setup
+### 3. Upload memory exhaustion (hypothesis — disproved)
 
-A Google Workspace app password was exposed during SMTP configuration. It grants
-full account access, not just SMTP, and bypasses 2FA. Revoked and regenerated;
-subsequent entry used `read -s` so the value never appeared in a terminal or in
-shell history.
+The upload endpoint calls `await f.read()` before checking file size, which
+looked like it would buffer an arbitrarily large upload into memory on a 2 GB
+host.
 
-The account it belongs to is a dedicated sender rather than a personal mailbox,
-which bounded the exposure to one throwaway identity within the domain.
+Measured by sampling the uvicorn process's RSS every 200 ms while posting a
+300 MB file:
 
----
+- RSS before: 30,636 kB
+- Peak RSS during: 30,636 kB
+- Result: 422, file rejected
 
-## 8. Deployment posture
+No change. Starlette spools large uploads to a temporary file on disk, so
+`f.read()` reads from disk rather than accumulating in memory.
 
-Production runs on a Rocky Linux 9 VPS, deliberately separate from the
-development laptop.
+**Not a memory exhaustion vector.** It remains a *disk* consumption vector —
+an authenticated client can force temporary files to be written before the size
+check rejects them — which is bounded by the host's disk and by the rate limit
+on authentication, but is not otherwise capped. Recorded as an open item rather
+than a finding.
 
-**Ingress:** a Cloudflare Tunnel. No inbound port is open — `firewalld` permits
-only SSH, and the tunnel establishes an *outbound* connection to Cloudflare's
-edge. TLS terminates at Cloudflare; the origin address is never exposed.
-
-**Host:** SSH is key-only. Password authentication was enabled by the cloud-init
-image and had to be explicitly disabled — the first attempt failed silently
-because `sshd_config.d/` files load in lexical order and cloud-init's `50-`
-prefix won over a `99-` hardening file. Verified with `sshd -T`, which prints
-the *effective* configuration, and by confirming a password attempt is rejected
-without a prompt.
-
-**Containers:** rootless Podman under a dedicated service user with lingering
-enabled, so the stack survives reboot without a login session. The application
-publishes only to `127.0.0.1`, reachable by the tunnel and nothing else.
-
-**Application:** `ENVIRONMENT=production` suppresses `/docs` and
-`/openapi.json`, `COOKIE_SECURE=true` requires HTTPS for the session cookie, and
-the frontend is a static build served by FastAPI rather than a dev server.
-
-**Not yet done:** HSTS is not enabled at Cloudflare. No automated backups of the
-`pgdata` volume. No log aggregation or alerting.
+Worth stating plainly: the initial measurement attempt was wrong. Running
+`/usr/bin/time -v` on `curl` reported curl's memory, not the server's. The
+finding only resolved once the right process was measured.
 
 ---
 
-## 9. Open items
+## Carried forward from the first review
 
-- `style-src 'unsafe-inline'` in the production CSP (§3).
-- Rate limiting is in-memory and per-process (§2).
-- No self-service password reset; a locked-out local user needs an
-  administrator and a SQL statement.
+### 4. Authorisation boundary (Critical — fixed, re-verified)
+
+The agent API originally returned unfiltered ticket threads with no
+authentication, so internal notes were readable by anyone who could reach the
+API. Note filtering lived in the React component, which is a convention rather
+than a control.
+
+Fixed by moving the boundary to the server: agent endpoints require the agent or
+admin role, portal endpoints derive identity from the session rather than a
+query parameter, and note filtering happens during serialisation.
+
+**Extended for attachments.** Attachments hang off events rather than tickets,
+so a file on an internal note inherits that note's visibility automatically
+rather than needing a parallel rule. Verified: a customer requesting an
+attachment on an internal note receives 404, not 403 — the resource does not
+acknowledge its own existence.
+
+`scripts/guard_test.sh` re-run this round: all assertions pass.
+
+### 5. Unlimited authentication attempts (High — fixed)
+
+Two independent budgets: 30 per 5 minutes per source IP, 5 per 15 minutes per
+target account. The split prevents an attacker locking out everyone behind a
+shared NAT while still stopping a targeted brute force. Registration is rate
+limited per IP, added because the signup notification made it a mail amplifier.
+
+### 6. Missing HTTP security headers (Medium — fixed)
+
+CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
+`Permissions-Policy` are set by middleware on every response including errors.
+`style-src 'unsafe-inline'` remains, because components use inline styles for
+priority colours — a real weakening, not a false positive.
+
+### 7. Unverified email as an abuse vector (High — fixed)
+
+Local accounts must confirm their address before signing in. Tokens are signed,
+48-hour, scoped to the user id *and* their current address, and carry a
+`purpose` claim so a session token cannot be substituted. Only with verification
+in place was the recipient allowlist widened in production.
+
+---
+
+## New subsystems assessed
+
+### 8.1 Attachments
+
+**Type validation is by content, not by claim.** `python-magic` sniffs the
+actual bytes; the extension and the client's `Content-Type` are both ignored for
+this decision. An allowlist of seven MIME types, so anything unrecognised is
+refused rather than something unsafe having to be anticipated.
+
+Tested against disguised content:
+
+| Uploaded as | Actual content | Result |
+|---|---|---|
+| `shot.png` | real PNG | accepted |
+| `doc.pdf` | real PDF | accepted |
+| `app.log` | plain text | accepted |
+| `evil.png` | HTML with `<script>` | **refused** — detected as text/html |
+| `x.svg` | SVG with `<script>` | **refused** — SVG not in the allowlist |
+| `payload.txt` | binary with null bytes | **refused** |
+
+SVG is deliberately excluded. It is an image format that executes script, and
+accepting it would undermine the rest of the controls.
+
+The null-byte check exists because libmagic falls back to `text/plain` for
+content it cannot identify, which would otherwise let arbitrary binary through
+as text.
+
+**Storage is under generated names.** A 16-byte random hex name plus a
+validated extension; the client's filename is stored for display only and never
+touches the filesystem. Path traversal is structurally impossible rather than
+something sanitised, and `path_for()` additionally refuses any resolved path
+outside the upload root.
+
+**Downloads cannot execute.** Served as `application/octet-stream` with
+`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and
+`Content-Security-Policy: default-src 'none'; sandbox`. Verified on the wire.
+
+**Validation happens before the message is posted.** An earlier implementation
+posted the reply, then uploaded, then attempted to clean up on failure — leaving
+orphaned "(attachment)" messages when a file was rejected, because the cleanup
+call was swallowed by a bare `catch`. Replaced with a dry-run validation
+endpoint that checks files without storing anything. Confirmed: a rejected
+upload now creates no event at all.
+
+### 8.2 Scheduled tickets
+
+**Staff only.** Allowing customers to create schedules was considered and
+rejected: a recurring schedule is an unbounded ticket generator and a mail
+amplifier, and on an instance with open registration that is a denial-of-service
+primitive with a user interface. Verified: a customer requesting `/api/schedules`
+receives 403.
+
+**The audit trail is immutable.** Each generated ticket carries a `system` event
+naming the schedule and its id. System events cannot be deleted — the same rule
+that protects status changes — so the record that a ticket was generated rather
+than filed by a person cannot be removed after the fact. This is the property
+that makes it usable as compliance evidence rather than decoration.
+
+**Failures are loud.** A schedule that fails stops firing, records the error,
+and emails the administrators. A compliance reminder that silently stops is the
+worst outcome, because it is discovered during an audit. Verified end to end: a
+schedule referencing a deleted account failed, recorded `ValueError: no active
+account for …`, and queued a notification per admin.
+
+**Catch-up is bounded.** A schedule left unrun advances to the next *future*
+occurrence rather than firing once per missed interval, so a week of downtime
+produces one ticket rather than seven.
+
+### 8.3 Backups
+
+`scripts/backup.sh` writes a compressed `pg_dump` and a tar of the uploads
+volume every six hours, keeping 30 days of dumps and the eight most recent
+upload archives.
+
+**Verified by restoring, not by inspection.** The dump was loaded into a
+throwaway database and row counts compared against production: 4 tickets, 6
+users, 1 schedule, 1 attachment — matching exactly. An untested backup is a
+guess.
+
+The script refuses to report success on a dump under 1 KB, because a `pg_dump`
+that fails partway still produces a valid-looking gzip.
+
+**Backups are local only.** They protect against application mistakes, a bad
+migration or accidental deletion — not against losing the host. They also
+contain argon2 password hashes and Fernet-sealed credentials, so their file
+permissions matter; they inherit the service user's home directory permissions
+and are not separately restricted.
+
+---
+
+## 9. Process findings
+
+### 9.1 Security tooling breaks the application it audits
+
+Installing Semgrep into the application virtualenv upgraded `starlette` past
+FastAPI's pin and broke imports entirely. Tooling now installs through `pipx`.
+
+A consequence worth repeating, because it produces a *convincing wrong answer*:
+`pip-audit` run from pipx audits its own environment and reports "No known
+vulnerabilities found". `scripts/audit.sh` sets `PIPAPI_PYTHON_LOCATION`
+accordingly. During this review that trap was hit again, and the clean result
+was believed for several minutes before the warning text was read.
+
+### 9.2 Measuring the wrong process
+
+The upload memory hypothesis (§3) was first tested with `/usr/bin/time -v` on
+`curl`, which reports curl's memory rather than the server's. The result looked
+like evidence and was not. Re-measuring the uvicorn process directly disproved
+the hypothesis.
+
+### 9.3 Assertions in tooling find what tests do not
+
+Both reviews have had findings surfaced by `assert count == 1` guards in scripted
+edits rather than by testing — a duplicated endpoint registration in the first
+round, and in this round several silently-skipped patches that would otherwise
+have left the frontend and backend inconsistent.
+
+---
+
+## 10. Open items
+
+- **Upload disk consumption.** Large files are spooled to temporary storage
+  before the size check rejects them. Bounded by disk and by authentication
+  rate limits, not otherwise capped.
+- **Uploaded files are not scanned for malware.** Type is validated, content is
+  not. Serving everything as a download bounds but does not eliminate the risk.
+- **Backups are local only and unmonitored.** A failed backup logs to the
+  journal and otherwise goes unnoticed.
+- **Backup archives contain password hashes and sealed secrets** with no
+  permissions beyond the service user's home directory.
+- `style-src 'unsafe-inline'` in the production CSP.
+- Rate limiting is in-memory and per-process.
+- No self-service password reset.
 - Development credentials are committed in `scripts/seed_users.py` and the
-  README. Acceptable for a private repository; must change before that stops
-  being true.
-- ZAP coverage of JSON request bodies (§6.2).
-- No automated backups, HSTS, or alerting on the production host (§8).
-- The production database holds real third-party email addresses and ticket
-  content. Ordinary for a support system, but it is personal data on a host with
-  no backup or retention policy.
+  README.
+- ZAP coverage of JSON request bodies remains low (see the first review).
+- No HSTS at Cloudflare, no log aggregation, no alerting.
+- The production database holds real third-party email addresses, ticket
+  content and uploaded files, on a host with no off-site backup.
+
+---
+
+## 11. Remaining dependency advisories
+
+`starlette` remains pinned by FastAPI's `<0.42` constraint. Following §1, the
+reachability of each was re-assessed rather than carried forward:
+
+| Advisory | Concerns | Reachable? |
+|---|---|---|
+| `PYSEC-2026-161` | `request.url.path` vs routed path | No — authorisation is by route dependency, and `request.url` is never read |
+| `PYSEC-2026-248` | `request.url.hostname` | No — same |
+| `PYSEC-2026-1942` | Quadratic Range parsing | **Was yes** — mitigated in the endpoint (§1) |
+| `PYSEC-2026-1941` | Event loop blocked spooling uploads | Partially — bounded by the size limit and rate limiting |
+| `PYSEC-2026-2281` | Windows path handling | No — Linux only |
+
+`cryptography` advisories cover X.509 chain verification and PKCS#7 decryption.
+This application uses Fernet only.
+
+**These assessments expire when the code changes.** §1 is the demonstration:
+a correctly-deferred advisory became exploitable because a feature shipped that
+used the affected code path. Re-check reachability when adding features, not
+only when the advisory list changes.
 
 ---
 
@@ -371,5 +359,4 @@ the frontend is a static build served by FastAPI rather than a dev server.
 identity and still pass `?email=` to endpoints that ignore it. They need
 updating before their results mean anything.
 
-ZAP requires Java 17+ and a plan file; see `deploy/zap-plan.yaml.example`. The
-session cookie placeholder must be replaced with a live token before running.
+ZAP requires Java 17+ and a plan file; see `deploy/zap-plan.yaml.example`.
