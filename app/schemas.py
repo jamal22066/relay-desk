@@ -106,3 +106,30 @@ class EventCreate(BaseModel):
     body: str = Field(min_length=1)
     kind: Literal["comment", "note"] = "comment"
     actor: str | None = None
+
+
+class ScheduleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    kind: Literal["once", "recurring"] = "once"
+    next_run_at: datetime
+    recur_every: int | None = Field(default=None, ge=1, le=365)
+    recur_unit: Literal["days", "weeks", "months"] | None = None
+    recur_until: datetime | None = None
+
+    subject: str = Field(min_length=3, max_length=300)
+    body: str = Field(min_length=3)
+    track: Track
+    category: str = Field(max_length=64)
+    priority: Priority = "P3"
+    requester_email: str = Field(max_length=200)
+    assignee: str = Field(default="Unassigned", max_length=120)
+
+
+class SchedulePatch(BaseModel):
+    name: str | None = None
+    status: str | None = None
+    next_run_at: datetime | None = None
+    recur_every: int | None = None
+    recur_unit: str | None = None
+    assignee: str | None = None
+    priority: Priority | None = None

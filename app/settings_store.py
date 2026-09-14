@@ -69,6 +69,7 @@ SPECS: list[Spec] = [
     Spec("notify_new_ticket_customer", "bool", "notifications", "Send the customer a receipt when they file"),
     Spec("notify_signup", "bool", "notifications", "Email admins when someone registers"),
     Spec("notify_verified", "bool", "notifications", "Email admins when someone confirms their address"),
+    Spec("notify_schedule_failed", "bool", "notifications", "Email admins when a schedule fails to run"),
 
     # --- SLA ---
     Spec("sla_p1_hours", "int", "sla", "P1 target (hours)"),
@@ -103,6 +104,7 @@ DEFAULTS: dict[str, Any] = {
     "notify_new_ticket_customer": True,
     "notify_signup": True,
     "notify_verified": True,
+    "notify_schedule_failed": True,
     "sla_p1_hours": 4,
     "sla_p2_hours": 8,
     "sla_p3_hours": 24,

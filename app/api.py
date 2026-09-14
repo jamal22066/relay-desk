@@ -18,6 +18,8 @@ from app.models import (
 )
 from app.models import User as UserModel
 from app.schemas import (
+    ScheduleCreate,
+    SchedulePatch,
     EventCreate,
     TicketCreate,
     TicketDetail,
@@ -396,3 +398,144 @@ async def validate_attachment(
             raise HTTPException(422, str(e))
         await f.seek(0)
     return {"ok": True}
+
+
+# -------------------------------------------------------------- schedules
+
+
+def _schedule_out(sch) -> dict:
+    return {
+        "id": sch.id,
+        "name": sch.name,
+        "kind": sch.kind,
+        "status": sch.status,
+        "next_run_at": sch.next_run_at,
+        "recur_every": sch.recur_every,
+        "recur_unit": sch.recur_unit,
+        "recur_until": sch.recur_until,
+        "subject": sch.subject,
+        "body": sch.body,
+        "track": sch.track,
+        "category": sch.category,
+        "priority": sch.priority,
+        "requester_email": sch.requester_email,
+        "assignee": sch.assignee,
+        "created_by": sch.created_by,
+        "created_at": sch.created_at,
+        "last_run_at": sch.last_run_at,
+        "run_count": sch.run_count,
+        "last_error": sch.last_error,
+    }
+
+
+@router.get("/schedules")
+def list_schedules(
+    me: UserModel = Depends(require_agent),
+    db: Session = Depends(get_db),
+):
+    from app.models import Schedule
+
+    rows = db.scalars(
+        select(Schedule).order_by(Schedule.status, Schedule.next_run_at)
+    ).all()
+    return [_schedule_out(s) for s in rows]
+
+
+@router.post("/schedules", status_code=201)
+def create_schedule(
+    payload: ScheduleCreate,
+    me: UserModel = Depends(require_agent),
+    db: Session = Depends(get_db),
+):
+    from app.models import CATEGORIES, Schedule, User as U
+
+    if payload.category not in CATEGORIES[payload.track]:
+        raise HTTPException(
+            422, "'%s' is not a %s topic" % (payload.category, payload.track)
+        )
+
+    requester = db.scalar(
+        select(U).where(
+            func.lower(U.email) == payload.requester_email.lower(), U.is_active
+        )
+    )
+    if requester is None:
+        raise HTTPException(422, "No active account with that address")
+
+    if payload.kind == "recurring" and not (payload.recur_every and payload.recur_unit):
+        raise HTTPException(422, "A recurring schedule needs an interval and a unit")
+
+    sch = Schedule(**payload.model_dump(), created_by=me.display_name)
+    db.add(sch)
+    db.commit()
+    db.refresh(sch)
+    return _schedule_out(sch)
+
+
+@router.patch("/schedules/{schedule_id}")
+def patch_schedule(
+    schedule_id: int,
+    payload: SchedulePatch,
+    me: UserModel = Depends(require_agent),
+    db: Session = Depends(get_db),
+):
+    from app.models import SCHEDULE_STATUSES, Schedule
+
+    sch = db.get(Schedule, schedule_id)
+    if sch is None:
+        raise HTTPException(404, "No such schedule")
+
+    data = payload.model_dump(exclude_none=True)
+    if "status" in data:
+        if data["status"] not in SCHEDULE_STATUSES:
+            raise HTTPException(422, "Unknown status")
+        # reactivating a failed schedule clears the recorded error
+        if data["status"] == "active":
+            sch.last_error = None
+    for k, v in data.items():
+        setattr(sch, k, v)
+
+    db.commit()
+    db.refresh(sch)
+    return _schedule_out(sch)
+
+
+@router.delete("/schedules/{schedule_id}")
+def delete_schedule(
+    schedule_id: int,
+    me: UserModel = Depends(require_agent),
+    db: Session = Depends(get_db),
+):
+    from app.models import Schedule
+
+    sch = db.get(Schedule, schedule_id)
+    if sch is None:
+        raise HTTPException(404, "No such schedule")
+    name = sch.name
+    db.delete(sch)
+    db.commit()
+    # tickets already created keep the system event naming this schedule
+    return {"ok": True, "detail": "Deleted %s. Tickets it created remain." % name}
+
+
+@router.post("/schedules/{schedule_id}/run-now")
+def run_schedule_now(
+    schedule_id: int,
+    me: UserModel = Depends(require_agent),
+    db: Session = Depends(get_db),
+):
+    from app.models import Schedule, utcnow as now
+    from app.scheduler import run_due
+
+    sch = db.get(Schedule, schedule_id)
+    if sch is None:
+        raise HTTPException(404, "No such schedule")
+
+    sch.next_run_at = now()
+    sch.status = "active"
+    db.commit()
+
+    for fired, outcome in run_due(db):
+        if fired.id == schedule_id:
+            return {"ok": not outcome.startswith("failed"), "detail": outcome}
+    return {"ok": False, "detail": "Nothing fired"}

@@ -160,3 +160,32 @@ def on_account_event(db: Session, user: User, stage: str) -> None:
             ),
             reason=f"account_{stage}", ticket_ref=None,
         )
+
+
+def on_schedule_failed(db: Session, sch, error: str) -> None:
+    """A schedule stopped firing. Say so, because the failure mode of a
+    compliance reminder is discovering during an audit that it went quiet."""
+    from app import settings_store as store
+
+    if not store.get(db, "notify_schedule_failed"):
+        return
+
+    admins = db.scalars(
+        select(User).where(
+            User.is_active,
+            or_(User.role == "admin", User.role_override == "admin"),
+        )
+    ).all()
+
+    for a in admins:
+        _queue(
+            db, to_email=a.email, to_name=a.display_name,
+            subject=f"Schedule failed: {sch.name}",
+            body=(
+                f'The schedule "{sch.name}" (#{sch.id}) did not run and is now '
+                f"marked failed. It will not fire again until reactivated.\n\n"
+                f"{error}\n\n"
+                f"Review it at {settings.app_base_url.rstrip('/')}/settings/schedules"
+            ),
+            reason="schedule_failed", ticket_ref=None,
+        )

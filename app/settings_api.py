@@ -266,7 +266,7 @@ def dashboard(db: Session = Depends(get_db)):
 
     from sqlalchemy import func, select
 
-    from app.models import Event, OPEN_STATUSES, Outbox, Ticket, User as U, utcnow
+    from app.models import Event, OPEN_STATUSES, Outbox, Schedule, Ticket, User as U, utcnow
 
     def counts(col):
         return dict(db.execute(select(col, func.count()).group_by(col)).all())
@@ -305,6 +305,14 @@ def dashboard(db: Session = Depends(get_db)):
             "due_soon": due_soon,
         },
         "outbox": counts(Outbox.status),
+        "schedules": {
+            "active": db.scalar(
+                select(func.count()).select_from(Schedule).where(Schedule.status == "active")
+            ),
+            "failed": db.scalar(
+                select(func.count()).select_from(Schedule).where(Schedule.status == "failed")
+            ),
+        },
         "users": {
             "total": db.scalar(select(func.count()).select_from(U)),
             "unverified": db.scalar(

@@ -258,3 +258,56 @@ class Attachment(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+SCHEDULE_KINDS = ("once", "recurring")
+SCHEDULE_STATUSES = ("active", "paused", "completed", "failed")
+RECUR_UNITS = ("days", "weeks", "months")
+
+
+class Schedule(Base):
+    """A ticket template that materialises on a date or a cadence.
+
+    The lead-time case ("open a ticket 30 days before the maintenance window")
+    is expressed by setting next_run_at to the computed date, rather than
+    storing the target date and an offset separately.
+    """
+    __tablename__ = "schedules"
+    __table_args__ = (
+        CheckConstraint(_in("kind", SCHEDULE_KINDS), name="ck_schedule_kind"),
+        CheckConstraint(_in("status", SCHEDULE_STATUSES), name="ck_schedule_status"),
+        CheckConstraint(_in("track", TRACKS), name="ck_schedule_track"),
+        CheckConstraint(_in("priority", PRIORITIES), name="ck_schedule_priority"),
+        Index("ix_schedules_due", "status", "next_run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+
+    kind: Mapped[str] = mapped_column(String(16), default="once")
+    status: Mapped[str] = mapped_column(String(16), default="active")
+
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recur_every: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recur_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    recur_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # the ticket this produces
+    subject: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text)
+    track: Mapped[str] = mapped_column(String(16))
+    category: Mapped[str] = mapped_column(String(64))
+    priority: Mapped[str] = mapped_column(String(2), default="P3")
+    requester_email: Mapped[str] = mapped_column(String(200))
+    assignee: Mapped[str] = mapped_column(String(120), default="Unassigned")
+
+    created_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    # a schedule that silently stops firing is worse than one that visibly fails
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
