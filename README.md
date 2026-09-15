@@ -228,8 +228,9 @@ do not run in CI.
 
 ## Deployment
 
-Production runs on a Rocky Linux 9 VPS: rootless Podman, three containers, and
-a Cloudflare Tunnel so no inbound port is open at all.
+The reference deployment is a single Linux host (tested on Rocky Linux 9):
+rootless Podman, three containers, and a Cloudflare Tunnel so no inbound port
+needs to be open.
 
     git clone <repo> && cd relay-desk
     cp .env.production.example .env     # fill in SECRET_KEY and POSTGRES_PASSWORD
@@ -292,8 +293,8 @@ Verify a backup by restoring it rather than trusting it:
 
 ## Known gaps
 
-- **Backups are local only and unmonitored.** A failed backup logs to the
-  journal and otherwise goes unnoticed.
+- **Backups are local only and not monitored by the application.** A failed
+  run logs to the journal; alerting on it is left to the operator.
 - **No password reset.** A local user who forgets their password needs an
   administrator and a SQL statement.
 - **Rate limiting is in-memory and per-process.** Adequate for a single

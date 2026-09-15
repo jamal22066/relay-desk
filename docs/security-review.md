@@ -1,8 +1,9 @@
 # Security review
 
 **Relay Desk** · Second review, September 2026
-Reviewer: Jamal Nasir · Scope: full application, its production deployment, and
-the attachment, scheduling and backup subsystems added since the first review.
+Reviewer: Jamal Nasir · Scope: full application, the reference container
+deployment, and the attachment, scheduling and backup subsystems added since the
+first review.
 Self-assessed. No independent review has been performed.
 
 ---
@@ -114,7 +115,7 @@ the parser they depend on.
 ### 3. Upload memory exhaustion (hypothesis — disproved)
 
 The upload endpoint calls `await f.read()` before checking file size, which
-looked like it would buffer an arbitrarily large upload into memory on a 2 GB
+looked like it would buffer an arbitrarily large upload into memory on a small
 host.
 
 Measured by sampling the uvicorn process's RSS every 200 ms while posting a
@@ -179,7 +180,7 @@ priority colours — a real weakening, not a false positive.
 Local accounts must confirm their address before signing in. Tokens are signed,
 48-hour, scoped to the user id *and* their current address, and carry a
 `purpose` claim so a session token cannot be substituted. Only with verification
-in place was the recipient allowlist widened in production.
+in place is it safe to widen the recipient allowlist.
 
 ---
 
@@ -258,9 +259,8 @@ volume every six hours, keeping 30 days of dumps and the eight most recent
 upload archives.
 
 **Verified by restoring, not by inspection.** The dump was loaded into a
-throwaway database and row counts compared against production: 4 tickets, 6
-users, 1 schedule, 1 attachment — matching exactly. An untested backup is a
-guess.
+throwaway database and row counts compared against the source database, table
+by table. An untested backup is a guess.
 
 The script refuses to report success on a dump under 1 KB, because a `pg_dump`
 that fails partway still produces a valid-looking gzip.
@@ -268,8 +268,8 @@ that fails partway still produces a valid-looking gzip.
 **Backups are local only.** They protect against application mistakes, a bad
 migration or accidental deletion — not against losing the host. They also
 contain argon2 password hashes and Fernet-sealed credentials, so their file
-permissions matter; they inherit the service user's home directory permissions
-and are not separately restricted.
+permissions matter. The script does not restrict them beyond the permissions
+of the directory it writes to; operators should.
 
 ---
 

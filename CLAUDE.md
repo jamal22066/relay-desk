@@ -191,8 +191,9 @@ Autogenerate reliably misses three things that have bitten this project:
 
 ## Deployment
 
-Production: Rocky Linux 9 VPS, rootless Podman, three containers (`compose.yaml`:
-`db`, `app`, `worker`), Cloudflare Tunnel (no inbound port). The app container
+Reference deployment: a single Linux host (Rocky Linux 9), rootless Podman,
+three containers (`compose.yaml`: `db`, `app`, `worker`), Cloudflare Tunnel
+(no inbound port). The app container
 builds the SPA in a Node stage and serves `web/dist` as `./static`. systemd
 *user* units + `loginctl enable-linger` in `deploy/` run the schedule timer,
 backup timer, and mail worker. `podman-compose` doesn't reliably detect a

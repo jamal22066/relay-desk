@@ -174,7 +174,7 @@ session token cannot be substituted for it.
 This was not an aesthetic addition. Once the system sends notifications,
 unverified registration makes it able to mail any address an anonymous party
 types, carrying the sending domain's reputation. Verification came before the
-recipient allowlist was widened in production, deliberately: an open
+recipient allowlist could be widened, deliberately: an open
 registration endpoint plus unrestricted outbound mail is the combination worth
 avoiding.
 
@@ -423,12 +423,13 @@ it would have cost re-entering every credential.
 
 ## 10. Deployment
 
-A Rocky Linux 9 VPS, deliberately separate from the development machine.
+The reference deployment is a single Linux host (built and tested on Rocky
+Linux 9), deliberately separate from any development machine.
 
-**Ingress is a Cloudflare Tunnel.** No inbound port is open — the firewall
-permits only SSH, and the tunnel establishes an *outbound* connection to
-Cloudflare's edge. TLS terminates at Cloudflare and the origin address is never
-exposed.
+**Ingress is a Cloudflare Tunnel.** No inbound port needs to be open — the
+tunnel establishes an *outbound* connection to Cloudflare's edge, so the host
+firewall can refuse everything but administrative access. TLS terminates at
+Cloudflare and the origin address need not be exposed.
 
 **Containers are rootless Podman** under a dedicated service user with lingering
 enabled, so the stack survives reboot without a login session. The application
@@ -459,7 +460,9 @@ Recording gaps honestly is more useful than an implied claim of completeness.
 - **No password reset.** A local user who forgets their password needs an
   administrator and a SQL statement.
 - **No malware scanning on uploads.** Type is validated, content is not.
-- **No off-site backup, monitoring or alerting.**
+- **Off-site backup, monitoring and alerting are left to the operator.** The
+  backup script writes locally, and nothing in the application reports a failed
+  run.
 - **Rate limiting is in-memory and per-process.** A fleet would need Redis.
 - **Search is `ILIKE` only.** Adequate for hundreds of tickets, not tens of
   thousands.
