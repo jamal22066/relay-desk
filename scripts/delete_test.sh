@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-API=http://localhost:8000/api
+API=${RELAY_API:-http://localhost:8000/api}
+AGENT_NAME=${RELAY_AGENT_NAME:-A. Rivera}
+CUSTOMER_EMAIL=${RELAY_CUSTOMER_EMAIL:-dana@example.com}
 REF=TKT-1041
 show() { python3 -c '
 import json, sys
@@ -26,9 +28,9 @@ e=[e for e in json.load(sys.stdin)["events"] if e["id"]=='"$CID"'][0]
 print("   LEAK:", repr(e["body"])) if e["body"] else print("   blank, clean")'
 
 echo "== customer cannot remove an agent message =="
-AID=$(curl -s "$API/tickets/$REF" | python3 -c 'import json,sys; print([e["id"] for e in json.load(sys.stdin)["events"] if e["actor"]=="J. Nasir" and e["kind"]=="comment"][0])')
+AID=$(curl -s "$API/tickets/$REF" | python3 -c 'import json,sys; print([e["id"] for e in json.load(sys.stdin)["events"] if e["actor"]==sys.argv[1] and e["kind"]=="comment"][0])' "$AGENT_NAME")
 curl -s -o /dev/null -w "   http %{http_code}\n" -X DELETE \
-  "$API/portal/tickets/$REF/events/$AID?email=dana@northgate.io"
+  "$API/portal/tickets/$REF/events/$AID?email=$CUSTOMER_EMAIL"
 
 echo "== row survives in postgres =="
 PGPASSWORD=relay_dev psql -h 127.0.0.1 -U relay -d relaydesk -tAc \

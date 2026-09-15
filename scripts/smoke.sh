@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-API=http://localhost:8000/api
+API=${RELAY_API:-http://localhost:8000/api}
+AGENT_NAME=${RELAY_AGENT_NAME:-A. Rivera}
+CUSTOMER_EMAIL=${RELAY_CUSTOMER_EMAIL:-dana@example.com}
 REF=${1:-TKT-1041}
 J() { python3 -m json.tool; }
 
@@ -15,16 +17,16 @@ curl -s -X POST "$API/tickets/$REF/events" -H 'content-type: application/json' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" status:",d["status"]," events:",[e["kind"] for e in d["events"]])'
 
 echo "== 3. portal view must hide the note =="
-curl -s "$API/portal/tickets?email=dana@northgate.io" \
+curl -s "$API/portal/tickets?email=$CUSTOMER_EMAIL" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print(" events:",[e["kind"] for e in d["events"]]); print(" LEAK" if any(e["kind"]=="note" for e in d["events"]) else " clean")'
 
 echo "== 4. patch to Waiting on customer, system event appended =="
 curl -s -X PATCH "$API/tickets/$REF" -H 'content-type: application/json' \
-  -d '{"status":"Waiting on customer","assignee":"J. Nasir"}' \
+  -d "{\"status\":\"Waiting on customer\",\"assignee\":\"$AGENT_NAME\"}" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" status:",d["status"]," assignee:",d["assignee"]); print(" system:",[e["body"] for e in d["events"] if e["kind"]=="system"])'
 
 echo "== 5. customer replies: Waiting on customer -> Open =="
-curl -s -X POST "$API/portal/tickets/$REF/events?email=dana@northgate.io" \
+curl -s -X POST "$API/portal/tickets/$REF/events?email=$CUSTOMER_EMAIL" \
   -H 'content-type: application/json' -d '{"body":"Yes, security rotated it Tuesday night."}' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" status:",d["status"])'
 

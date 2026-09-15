@@ -3,7 +3,7 @@
 ## Building a self-hosted support desk with FastAPI, PostgreSQL and React
 
 **Jamal Nasir** · September 2026
-`github.com/jamal22066/relay-desk` · running at `relaydesk.us`
+`github.com/jamal22066/relay-desk`
 
 ---
 

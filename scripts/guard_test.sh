@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-API=http://localhost:8000/api
+API=${RELAY_API:-http://localhost:8000/api}
+# Credentials: defaults match scripts/seed_users.py; passwords fall back to SEED_PASSWORD.
+AGENT_EMAIL=${RELAY_AGENT_EMAIL:-arivera@example.com}
+AGENT_PASSWORD=${RELAY_AGENT_PASSWORD:-${SEED_PASSWORD:-}}
+CUSTOMER_EMAIL=${RELAY_CUSTOMER_EMAIL:-dana@example.com}
+CUSTOMER_PASSWORD=${RELAY_CUSTOMER_PASSWORD:-${SEED_PASSWORD:-}}
+: "${AGENT_PASSWORD:?set RELAY_AGENT_PASSWORD or SEED_PASSWORD}"
+: "${CUSTOMER_PASSWORD:?set RELAY_CUSTOMER_PASSWORD or SEED_PASSWORD}"
 AJ=$(mktemp); CJ=$(mktemp)
 code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
 FAIL=0
@@ -9,9 +16,9 @@ row() {
 }
 
 curl -s -c "$AJ" -X POST "$API/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"jamal@relaydesk.io","password":"devpassword123"}' -o /dev/null
+  -d "{\"email\":\"$AGENT_EMAIL\",\"password\":\"$AGENT_PASSWORD\"}" -o /dev/null
 curl -s -c "$CJ" -X POST "$API/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"jamal@jamalsblog.com","password":"devpassword123"}' -o /dev/null
+  -d "{\"email\":\"$CUSTOMER_EMAIL\",\"password\":\"$CUSTOMER_PASSWORD\"}" -o /dev/null
 
 echo "== anonymous is locked out (expect 401) =="
 for p in /meta /counts "/tickets?view=all" /tickets/TKT-1041 /portal/tickets; do

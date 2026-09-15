@@ -5,8 +5,6 @@ FastAPI and PostgreSQL behind a React frontend, with LDAP authentication, email
 notifications, file attachments, a business-hours SLA engine and scheduled
 ticket creation.
 
-Running at **[relaydesk.us](https://relaydesk.us)**.
-
 ## Design notes
 
 [Architecture white paper](docs/relay-desk-whitepaper.md) — why this was built
@@ -115,36 +113,56 @@ Under systemd in production — see `deploy/`.
 
 ---
 
-## Development accounts
+## Creating accounts
 
-Created by `python scripts/seed_users.py`. **Local development only** — these
-passwords are in the seed script and in this file.
+No credentials ship with the repository.
 
-| Account | Role | Password |
-|---|---|---|
-| `jamal@relaydesk.io` | agent | `devpassword123` |
-| `rokafor@relaydesk.io` | agent | `devpassword123` |
-| `dana@northgate.io` | customer | `devpassword123` |
-| `priya@ferrous.dev` | customer | `devpassword123` |
+**On a real install**, register through the sign-in page. Local accounts must
+confirm their email address before they can sign in, so configure SMTP first
+(see Configuration). New registrations are customers. Promote the first staff
+account from the database:
 
-The admin role is not granted by the seed script. Promote an account manually:
-
-    UPDATE users SET role='admin' WHERE email='jamal@relaydesk.io';
+    UPDATE users SET role='admin' WHERE email='you@example.com';
 
 Then run `python scripts/check_admin.py`, which warns if no *local* admin
-exists — a state that would lock you out if the directory config broke.
+exists — a state that would lock you out if the directory config broke. After
+that, manage roles from the admin area.
+
+### Demo accounts for local development
+
+`python scripts/seed_users.py` creates two agents and two customers on
+`example.com`, marked verified so no mail is needed. Each gets a random
+password printed once. To choose one yourself, set `SEED_PASSWORD`:
+
+    SEED_PASSWORD='choose-something' python scripts/seed_users.py
+
+The seed script does not grant the admin role; promote one of them as above.
+
+The integration scripts in `scripts/*_test.sh` sign in as a seeded agent and
+customer. They read `RELAY_AGENT_EMAIL`, `RELAY_AGENT_PASSWORD`,
+`RELAY_CUSTOMER_EMAIL` and `RELAY_CUSTOMER_PASSWORD`, defaulting the addresses
+to the seed accounts and the passwords to `SEED_PASSWORD`. `RELAY_API` overrides
+the default `http://localhost:8000/api`.
 
 ### Directory test accounts
 
-Loaded into a local 389 DS instance by `ldap-dev/bootstrap.ldif`, password
-`LdapTest123!`. Members of `cn=support-staff` resolve to the agent role; `ext`
-is deliberately outside it, to prove group mapping denies as well as grants.
+`ldap-dev/bootstrap.ldif` defines a small directory for a local 389 DS instance
+under `dc=example,dc=com`, matching the `LDAP_*` examples in `.env.example`.
+Its `userPassword` values are the placeholder `CHANGE_ME_LDAP_TEST_PASSWORD`;
+substitute your own before loading, and export the same value for
+`scripts/ldap_test.sh`:
+
+    export LDAP_TEST_PASSWORD='choose-something'
+    sed "s/CHANGE_ME_LDAP_TEST_PASSWORD/$LDAP_TEST_PASSWORD/" ldap-dev/bootstrap.ldif > /tmp/bootstrap.ldif
+
+Members of `cn=support-staff` resolve to the agent role; `ext` is deliberately
+outside it, to prove group mapping denies as well as grants.
 
 | Account | Resolves as |
 |---|---|
-| `jamal.nasir@relaydesk.test` | agent |
-| `tremaine.hart@relaydesk.test` | agent |
-| `ext@relaydesk.test` | customer |
+| `alex.smith@example.com` | agent |
+| `sam.jones@example.com` | agent |
+| `ext@example.com` | customer |
 
 ---
 
@@ -295,9 +313,6 @@ Verify a backup by restoring it rather than trusting it:
 - **`scripts/smoke.sh` and `scripts/delete_test.sh` are stale.** They pass
   `?email=` to portal endpoints that now derive identity from the session, so
   those calls fail regardless of the address used.
-- **Development credentials are committed** in `scripts/seed_users.py` and above.
-  Acceptable while the repository is private; change them before that stops
-  being true.
 
 ## Dependency advisories
 

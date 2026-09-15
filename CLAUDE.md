@@ -10,7 +10,7 @@ triage and reply in a console. It is a single deployable product, not a
 monorepo. See `README.md` for the operator-facing narrative and
 `docs/relay-desk-whitepaper.md` for the design rationale.
 
-> Note: the workspace-level `/home/jamal/CLAUDE.md` describes an unrelated
+> Note: a workspace-level `CLAUDE.md` in a parent directory may describe an unrelated
 > DevOps workspace. It does not apply here — this file governs `relay-desk/`.
 
 ## Environment
@@ -22,7 +22,7 @@ Invoke `/usr/bin/git` explicitly for every git operation.
 **`.env` holds live credentials** — the Gmail app password, `SECRET_KEY`, and
 the Postgres password. Never read, print, or echo its contents.
 
-**Production runs at [relaydesk.us](https://relaydesk.us) with real user data.**
+**The production deployment holds real user data.**
 Local development uses seed data (`scripts/seed.py`, `scripts/seed_users.py`).
 Keep the two straight — never point local tooling or destructive commands at
 production.

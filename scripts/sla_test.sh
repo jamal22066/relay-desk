@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-API=http://localhost:8000/api
+API=${RELAY_API:-http://localhost:8000/api}
+# Credentials: defaults match scripts/seed_users.py; password falls back to SEED_PASSWORD.
+AGENT_EMAIL=${RELAY_AGENT_EMAIL:-arivera@example.com}
+AGENT_PASSWORD=${RELAY_AGENT_PASSWORD:-${SEED_PASSWORD:-}}
+: "${AGENT_PASSWORD:?set RELAY_AGENT_PASSWORD or SEED_PASSWORD}"
 J=$(mktemp)
 curl -s -c "$J" -X POST "$API/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"jamal@relaydesk.io","password":"devpassword123"}' -o /dev/null
+  -d "{\"email\":\"$AGENT_EMAIL\",\"password\":\"$AGENT_PASSWORD\"}" -o /dev/null
 
 show() {
   PGPASSWORD=relay_dev psql -h 127.0.0.1 -U relay -d relaydesk -tAc \

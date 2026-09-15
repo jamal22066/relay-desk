@@ -302,26 +302,27 @@ have left the frontend and backend inconsistent.
 
 ---
 
-## 10. Open items
+## 10. Architectural limitations
+
+Known limitations of the application's design, independent of any particular
+deployment.
 
 - **Upload disk consumption.** Large files are spooled to temporary storage
   before the size check rejects them. Bounded by disk and by authentication
   rate limits, not otherwise capped.
 - **Uploaded files are not scanned for malware.** Type is validated, content is
   not. Serving everything as a download bounds but does not eliminate the risk.
-- **Backups are local only and unmonitored.** A failed backup logs to the
-  journal and otherwise goes unnoticed.
-- **Backup archives contain password hashes and sealed secrets** with no
-  permissions beyond the service user's home directory.
-- `style-src 'unsafe-inline'` in the production CSP.
-- Rate limiting is in-memory and per-process.
+- **`scripts/backup.sh` writes locally and reports failure only to its own
+  output.** Off-site copies and failure alerting are left to the operator.
+- **Backup archives contain password hashes and sealed secrets.** The script
+  does not set restrictive permissions on them; operators should.
+- `style-src 'unsafe-inline'` in the CSP, because components use inline styles.
+- Rate limiting is in-memory and per-process; multiple instances do not share
+  counters.
 - No self-service password reset.
-- Development credentials are committed in `scripts/seed_users.py` and the
-  README.
 - ZAP coverage of JSON request bodies remains low (see the first review).
-- No HSTS at Cloudflare, no log aggregation, no alerting.
-- The production database holds real third-party email addresses, ticket
-  content and uploaded files, on a host with no off-site backup.
+- Transport hardening such as HSTS, log aggregation and alerting are outside
+  the application and must be provided by the deployment.
 
 ---
 

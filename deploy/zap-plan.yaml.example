@@ -42,5 +42,5 @@ jobs:
   - type: report
     parameters:
       template: traditional-json
-      reportDir: /home/jamal
+      reportDir: /zap/wrk
       reportFile: zap-full.json

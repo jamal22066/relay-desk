@@ -1,43 +1,54 @@
-dn: cn=accounts,dc=relaydesk,dc=test
+# Local test directory for LDAP authentication. Not for production.
+#
+# CHANGE_ME_LDAP_TEST_PASSWORD is a placeholder, not a usable password.
+# Substitute your own before loading, and export the same value as
+# LDAP_TEST_PASSWORD for scripts/ldap_test.sh:
+#
+#   export LDAP_TEST_PASSWORD='choose-something'
+#   sed "s/CHANGE_ME_LDAP_TEST_PASSWORD/$LDAP_TEST_PASSWORD/" ldap-dev/bootstrap.ldif > /tmp/bootstrap.ldif
+#
+# The base DN matches the LDAP_* examples in .env.example.
+
+dn: cn=accounts,dc=example,dc=com
 objectClass: nsContainer
 objectClass: top
 cn: accounts
 
-dn: cn=users,cn=accounts,dc=relaydesk,dc=test
+dn: cn=users,cn=accounts,dc=example,dc=com
 objectClass: nsContainer
 objectClass: top
 cn: users
 
-dn: cn=groups,cn=accounts,dc=relaydesk,dc=test
+dn: cn=groups,cn=accounts,dc=example,dc=com
 objectClass: nsContainer
 objectClass: top
 cn: groups
 
-dn: uid=jamal,cn=users,cn=accounts,dc=relaydesk,dc=test
+dn: uid=asmith,cn=users,cn=accounts,dc=example,dc=com
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
 objectClass: inetOrgPerson
-uid: jamal
-cn: Jamal Nasir
-sn: Nasir
-displayName: Jamal Nasir
-mail: jamal.nasir@relaydesk.test
-userPassword: LdapTest123!
+uid: asmith
+cn: Alex Smith
+sn: Smith
+displayName: Alex Smith
+mail: alex.smith@example.com
+userPassword: CHANGE_ME_LDAP_TEST_PASSWORD
 
-dn: uid=tremaine,cn=users,cn=accounts,dc=relaydesk,dc=test
+dn: uid=sjones,cn=users,cn=accounts,dc=example,dc=com
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
 objectClass: inetOrgPerson
-uid: tremaine
-cn: Tremaine Hart
-sn: Hart
-displayName: Tremaine Hart
-mail: tremaine.hart@relaydesk.test
-userPassword: LdapTest123!
+uid: sjones
+cn: Sam Jones
+sn: Jones
+displayName: Sam Jones
+mail: sam.jones@example.com
+userPassword: CHANGE_ME_LDAP_TEST_PASSWORD
 
-dn: uid=external,cn=users,cn=accounts,dc=relaydesk,dc=test
+dn: uid=external,cn=users,cn=accounts,dc=example,dc=com
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
@@ -46,12 +57,12 @@ uid: external
 cn: Ext Contractor
 sn: Contractor
 displayName: Ext Contractor
-mail: ext@relaydesk.test
-userPassword: LdapTest123!
+mail: ext@example.com
+userPassword: CHANGE_ME_LDAP_TEST_PASSWORD
 
-dn: cn=support-staff,cn=groups,cn=accounts,dc=relaydesk,dc=test
+dn: cn=support-staff,cn=groups,cn=accounts,dc=example,dc=com
 objectClass: top
 objectClass: groupOfNames
 cn: support-staff
-member: uid=jamal,cn=users,cn=accounts,dc=relaydesk,dc=test
-member: uid=tremaine,cn=users,cn=accounts,dc=relaydesk,dc=test
+member: uid=asmith,cn=users,cn=accounts,dc=example,dc=com
+member: uid=sjones,cn=users,cn=accounts,dc=example,dc=com
