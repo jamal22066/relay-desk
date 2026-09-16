@@ -83,6 +83,16 @@ it is blown, which is why "Past due" reads 4. The last message in the thread
 carries the *Internal, not sent* tag: that is an internal note, and this is the
 only surface it appears on.
 
+![Ticket TKT-1045 in the agent console with a reply carrying an attachment
+chip reading "vpn-connection-log.txt 907 B"](docs/screenshots/attachment.png)
+
+Attachments hang off events rather than tickets, so this log inherits the
+visibility of the reply it is attached to — the same file on an internal note
+would be invisible to the customer along with the note. The content type is
+decided by sniffing the file's bytes rather than trusting the `.txt` extension
+or the browser's `Content-Type`, and the stored filename is generated, so a
+crafted name cannot escape the upload directory.
+
 ### Customer portal
 
 ![Relay Desk customer portal: a "Tell us what broke" filing form with service
@@ -134,15 +144,15 @@ reattributed to a person who filed it after the fact.
 ### Administration
 
 ![Relay Desk admin overview: tiles for open, unassigned, past due and
-due-within-4h tickets, a breakdown by priority, an email queue showing three
-suppressed messages, schedule and account counts, and a recent activity
-list](docs/screenshots/admin-overview.png)
+due-within-4h tickets, a breakdown by priority, an email queue split into sent,
+queued, suppressed and failed, schedule and account counts, and a recent
+activity list](docs/screenshots/admin-overview.png)
 
-Queue health and delivery health on one page. The three *suppressed* messages
-are the `SMTP_ALLOWLIST` safety valve working as intended — a recipient outside
-the allowlist is recorded rather than sent, so routing can be verified without
-mailing real people. Suppressed is counted separately from failed precisely so
-the two are never confused.
+Queue health and delivery health on one page. The *suppressed* count is the
+`SMTP_ALLOWLIST` safety valve working as intended — a recipient outside the
+allowlist is recorded rather than sent, so routing can be verified without
+mailing real people. It is counted separately from *failed* precisely so the two
+are never confused: nothing here is a delivery error.
 
 ![Relay Desk accounts page: four accounts listed with a role dropdown, auth
 source, status, ticket count and last-seen column each, plus Disable and Delete
@@ -152,6 +162,54 @@ Everyone who can sign in. The role dropdown sets a local override that wins over
 the directory, which is how someone is promoted without touching LDAP groups.
 Deleting an account leaves its tickets in place, and neither your own account
 nor the last remaining administrator can be removed.
+
+![Relay Desk directory settings: Enable LDAP checked, with server URL, service
+account DN, a masked service account password, user search base, user filter,
+group search base and agent group DN, each tagged "from
+.env"](docs/screenshots/directory.png)
+
+Staff can authenticate against LDAP or FreeIPA with a per-user bind. Membership
+of the agent group DN grants the agent role, though a role set on the Accounts
+page still overrides the directory. Note the service account password: secrets
+are sealed before storage and never sent back to the browser, so the field shows
+a mask and submitting it untouched leaves the stored value alone.
+
+![Relay Desk service level settings: P1 to P4 targets in hours, checkboxes for
+business-hours-only and pause-while-waiting-on-customer, and working day start,
+end and days fields](docs/screenshots/service-levels.png)
+
+Response targets per priority, and the working calendar that business-hours mode
+walks. The two checkboxes are what switch the engine from wall-clock to working
+time and stop the clock while a ticket sits with the customer. The `from .env`
+badges show where each value is currently resolving from — settings are
+database-first and fall back to the environment, so a target can be changed here
+without a redeploy.
+
+![Relay Desk email delivery settings: enable-email checkbox, SMTP host, port,
+username, a masked password, from address and name, recipient allowlist and app
+URL, each tagged either "from .env" or "set here" with a Reset
+button](docs/screenshots/email-delivery.png)
+
+Outbound relay configuration. The badges are the settings model made visible: a
+value tagged *from .env* is falling back to the environment, while *set here*
+means a database override is in force and can be reverted with `Reset`. The
+password reads as a mask — secrets are sealed before storage and never returned
+to the browser, and submitting the field untouched leaves the stored value
+alone. The recipient allowlist is the safety valve: anything outside it is
+recorded as suppressed rather than sent.
+
+![Relay Desk mail queue: filter tabs for all, queued, sent, suppressed and
+failed, above a table of notifications showing status, recipient, ticket
+reference, subject, reason code and created time, each row with Body and Retry
+actions](docs/screenshots/mail-queue.png)
+
+Nothing is emailed inline. Every notification is queued as a row here and
+drained by a separate worker, so what the system intended to send is inspectable
+after the fact — `Body` shows the exact message, `Retry` requeues a failure. The
+`reason` column says which rule produced each message, and these are all
+*suppressed*: the recipients fell outside the allowlist, so they were recorded
+instead of delivered. Notes and system events appear nowhere here, because they
+notify nobody.
 
 ![Relay Desk notifications settings: nine checkboxes controlling which events
 generate email, all enabled, above a disabled "No changes"
