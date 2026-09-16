@@ -5,3 +5,4 @@ __pycache__/
 web/node_modules/
 web/dist/
 uploads/
+CLAUDE.local.md
