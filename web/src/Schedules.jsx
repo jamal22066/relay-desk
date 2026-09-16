@@ -83,6 +83,10 @@ export default function Schedules({ meta }) {
   const cadence = (s) =>
     s.kind === "once" ? "once" : `every ${s.recur_every} ${s.recur_unit}`;
 
+  // the server requires all three (ScheduleCreate); don't let the form post a
+  // request that can only come back a 422
+  const canSave = !!(f && f.name.trim() && f.subject.trim() && f.body.trim());
+
   return (
     <div className="setbody widepane schedules">
       {err && <div className="errbar" style={{ marginBottom: 14 }}>{err}</div>}
@@ -211,7 +215,7 @@ export default function Schedules({ meta }) {
           </div>
 
           <div className="formfoot">
-            <button className="btn teal" disabled={busy === "new"} onClick={save}>
+            <button className="btn teal" disabled={busy === "new" || !canSave} onClick={save}>
               {busy === "new" ? "Saving…" : "Create schedule"}
             </button>
             <button className="btn ghost" onClick={() => setAdding(false)}>Cancel</button>

@@ -1,9 +1,47 @@
+// loc[0] says which part of the request failed, not which field
+const LOC_KINDS = new Set(["body", "query", "path", "header", "cookie"]);
+
+/**
+ * Field name out of a Pydantic error `loc`, e.g. ["body","name"] -> "name".
+ * Only the leading request-part marker is dropped: a field genuinely called
+ * "body" arrives as ["body","body"] and must keep its name.
+ */
+function locField(loc) {
+  if (!Array.isArray(loc) || loc.length === 0) return null;
+  const rest = LOC_KINDS.has(loc[0]) ? loc.slice(1) : loc;
+  const names = rest.filter((p) => typeof p === "string");
+  return names.length ? names[names.length - 1] : null;
+}
+
+/**
+ * FastAPI puts a plain string in `detail` for HTTPException, but a list of
+ * {loc, msg, type} objects for a 422. Render either as something a person can
+ * read rather than dumping the raw array into the error bar.
+ */
+function explain(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((e) => {
+      if (!e || typeof e !== "object" || typeof e.msg !== "string") {
+        return typeof e === "string" ? e : JSON.stringify(e);
+      }
+      const field = locField(e.loc);
+      return field ? `${field}: ${e.msg}` : e.msg;
+    }).filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  }
+  if (detail && typeof detail === "object" && typeof detail.msg === "string") {
+    return detail.msg;
+  }
+  return JSON.stringify(detail);
+}
+
 async function j(r) {
   if (!r.ok) {
     let detail = `${r.status} ${r.statusText}`;
     try {
       const b = await r.json();
-      if (b.detail) detail = typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail);
+      if (b.detail) detail = explain(b.detail);
     } catch {}
     throw new Error(detail);
   }
