@@ -110,6 +110,29 @@ internal note visible in the agent shot is absent here, and not because the
 browser hides it: portal endpoints strip every non-comment event server-side, so
 the note is never serialised into the response at all.
 
+### Single sign-on
+
+![Relay Desk sign-in page: a "Sign in with single sign-on" button above a
+divider reading "or use a password", with email and password fields and a
+create-account button below it](docs/screenshots/sso-signin.png)
+
+Staff and customers use the same sign-in. SSO is offered first when a provider
+is configured, and the password form stays available beneath it — an
+organisation moving to SSO does not have to move everyone at once. The button
+disappears entirely when no provider is configured.
+
+![The Relay Desk top bar for a user signed in through SSO, showing their name
+and two buttons: "Sign out" and "Sign out
+everywhere"](docs/screenshots/sso-signout.png)
+
+Two ways out, because they mean different things. **Sign out** clears the Relay
+Desk session and leaves the identity provider's alone, which is what you want
+when other applications are open against the same provider. **Sign out
+everywhere** additionally redirects to the provider to end that session. The
+second button appears only for SSO users, and only when the provider advertises
+support for it — Google, for instance, publishes no logout endpoint, so offering
+the choice there would be a lie.
+
 ### Scheduled tickets
 
 ![Relay Desk schedules admin page listing one schedule, "EKS maintenance prep —
@@ -201,9 +224,10 @@ to the browser, and submitting the field untouched leaves the stored value
 alone. The recipient allowlist is the safety valve: anything outside it is
 recorded as suppressed rather than sent.
 
-![Relay Desk mail queue: filter tabs for all, queued, sent, suppressed and
-failed, above a table of notifications showing status, recipient, ticket
-reference, subject, reason code and created time, each row with Body and Retry
+![Relay Desk mail queue: a line naming the sending address and recipient
+allowlist, filter tabs for all, queued, sent, suppressed and failed, and a table
+of notifications showing status, recipient, ticket reference, subject, reason
+code and created time, each row with Body and Retry
 actions](docs/screenshots/mail-queue.png)
 
 Nothing is emailed inline. Every notification is queued as a row here and
