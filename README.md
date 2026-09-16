@@ -1,9 +1,9 @@
 # Relay Desk
 
 A self-hosted ticketing system for SaaS product support and workplace IT.
-FastAPI and PostgreSQL behind a React frontend, with LDAP authentication, email
-notifications, file attachments, a business-hours SLA engine and scheduled
-ticket creation.
+FastAPI and PostgreSQL behind a React frontend, with LDAP and OIDC single
+sign-on, email notifications, file attachments, a business-hours SLA engine and
+scheduled ticket creation.
 
 ## Design notes
 
@@ -51,8 +51,11 @@ the administrators, because a compliance reminder that goes quiet is worse than
 one that visibly breaks.
 
 **Authentication** — local accounts with argon2 hashing and email verification,
-plus optional per-user LDAP against FreeIPA or 389 Directory Server. Roles come
-from directory group membership; a local override wins over the directory.
+plus optional per-user LDAP against FreeIPA or 389 Directory Server, and OIDC
+single sign-on against any compliant provider. Roles come from directory group
+membership or the ID token's group claim; a local override wins over both.
+Signing out leaves the provider's session alone unless asked to end it, since
+other applications may be relying on it.
 Sessions are JWTs in an httpOnly cookie. Login is rate limited per source IP and
 per target account; registration is rate limited per IP.
 

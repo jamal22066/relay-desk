@@ -2,8 +2,8 @@
 
 **Relay Desk** · Second review, September 2026
 Reviewer: Jamal Nasir · Scope: full application, the reference container
-deployment, and the attachment, scheduling and backup subsystems added since the
-first review.
+deployment, and the attachment, scheduling, backup and single sign-on
+subsystems added since the first review.
 Self-assessed. No independent review has been performed.
 
 ---
@@ -12,7 +12,7 @@ Self-assessed. No independent review has been performed.
 
 The first review covered authentication, authorisation and transport. This one
 re-tests those and adds the surface introduced since: file uploads, scheduled
-ticket creation, and backups.
+ticket creation, backups, and OIDC single sign-on.
 
 Seven classes of issue have been found and fixed across both reviews. Two
 findings in this round were introduced by the project's own dependency
@@ -271,6 +271,94 @@ contain argon2 password hashes and Fernet-sealed credentials, so their file
 permissions matter. The script does not restrict them beyond the permissions
 of the directory it writes to; operators should.
 
+### 8.4 Single sign-on (OIDC)
+
+Staff and customers can authenticate against an external provider. The
+application is a confidential client using the authorization code flow, and the
+local Keycloak realm in `keycloak-dev/` is the test rig.
+
+**ID token verification is the whole of the security.** Everything the
+application believes about the caller — subject, address, group membership —
+comes from the ID token, so accepting an unverified one would let anyone assert
+any identity. The token is verified against the provider's published JWKS, with
+audience and issuer pinned. Tested against a genuine Keycloak token:
+
+| Attempt | Result |
+|---|---|
+| Genuine token | accepted |
+| Payload edited, original signature kept | `InvalidSignatureError` |
+| Re-signed HS256 with an attacker key | `PyJWKClientError` — no matching JWK |
+| `alg: none` | `PyJWKClientError` |
+| Correct signature, wrong audience | `InvalidAudienceError` |
+| Correct signature, wrong issuer | `InvalidIssuerError` |
+
+The algorithm allowlist is `RS256`/`ES256`, so the classic `alg: none` and
+HMAC-confusion substitutions fail before a key is even selected.
+
+**The callback is bound to a request this application started.** `state` is a
+short-lived JWT signed with `SECRET_KEY`, carrying a purpose and a ten-minute
+expiry, rather than a server-side session entry. Verified: a state signed with a
+different key is rejected, and so is one carrying a valid signature but a
+different purpose, which stops a token minted for another flow being replayed
+here.
+
+**Signing in adopts a matching local account — a deliberate trade with a sharp
+edge.** When the address in a verified ID token matches an existing `local`
+account, that account is taken over rather than duplicated: `auth_source`
+becomes `oidc` and `password_hash` is cleared. Demonstrated against a local
+account holding its own password, where an SSO sign-in for the same address
+produced the same row id, a null password hash, and an overwritten display name.
+The account keeps its tickets, so whoever completes that sign-in inherits the
+history too.
+
+This is right when the provider is authoritative for the addresses it asserts,
+which is the ordinary case: a company IdP for a company domain, where the person
+behind `someone@company.example` is the same person either way. **It is wrong
+where the provider federates identities it does not own** — a Keycloak brokering
+to social logins, a multi-tenant provider, or any configuration where a user can
+set their own address. There, controlling an address at the IdP is enough to
+take over the matching local account, including an administrator's. An operator
+in that position should not enable OIDC without first confirming the provider
+will only ever assert addresses it controls.
+
+**Address verification is trusted, not proven.** The flow rejects a token whose
+`email_verified` claim is explicitly `false`, but a provider that omits the
+claim entirely passes. That is a deliberate accommodation — not every provider
+sends it — and it means the adoption behaviour above rests on the provider's
+diligence rather than on anything checked here.
+
+**Roles come from group claims, and a local override still wins.** The group
+claim is mapped to admin or agent by configured group names; anything else is a
+customer. `role_override` is applied after, so an administrator can promote or
+demote someone regardless of the directory. Verified: an account the IdP reports
+with no groups, carrying `role_override='admin'`, signs in and resolves as
+admin, while the IdP-derived `role` column still reads `customer`. The
+consequence worth stating is that the IdP cannot demote someone who holds an
+override — removing a user from the admin group in the directory does not
+revoke their access here.
+
+**Logout does not end the provider's session unless asked.** Signing out clears
+the local cookie only; ending the provider session is a separate, explicit
+action that redirects to `end_session_endpoint` with the stored ID token as
+`id_token_hint`. Verified both directions: after a plain sign-out, returning
+through SSO re-authenticates silently, and after *Sign out everywhere* the
+provider prompts for a password again.
+
+**The stored ID token is credential material at rest.** It is kept between
+sign-in and sign-out solely to hint that logout, and cleared on any logout. It
+is stored in plaintext, unlike settings secrets, which are Fernet-sealed — so it
+appears unencrypted in `pg_dump` output and therefore in backups. It is an ID
+token rather than an access or refresh token, and it is short-lived, so what it
+grants an attacker who already has the database is limited; it is recorded here
+because "we store a token from your IdP in the clear" should be a stated
+property, not a discovered one.
+
+**Not implemented: PKCE and `nonce`.** Neither is required for a confidential
+client performing a server-side code exchange over TLS with client
+authentication, which is the deployed configuration. Both are defence in depth
+that a public client would need, and their absence is a reason this flow should
+not be repurposed for one.
+
 ---
 
 ## 9. Process findings
@@ -316,6 +404,16 @@ deployment.
   output.** Off-site copies and failure alerting are left to the operator.
 - **Backup archives contain password hashes and sealed secrets.** The script
   does not set restrictive permissions on them; operators should.
+- **An SSO sign-in adopts a matching local account.** Correct where the provider
+  is authoritative for the addresses it asserts; a takeover primitive where it
+  federates identities it does not own. See 8.4.
+- **A local role override cannot be revoked by the directory.** Removing someone
+  from the admin group at the provider does not remove an override set here.
+- **The provider's ID token is stored unencrypted** between sign-in and
+  sign-out, so it appears in database backups. Settings secrets are sealed;
+  this is not.
+- **No SAML.** Single sign-on is OIDC only; a SAML-only organisation needs a
+  broker in front.
 - `style-src 'unsafe-inline'` in the CSP, because components use inline styles.
 - Rate limiting is in-memory and per-process; multiple instances do not share
   counters.

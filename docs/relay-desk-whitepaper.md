@@ -12,7 +12,7 @@
 Relay Desk is a customer-facing ticketing system covering both SaaS product
 support and workplace IT. It was built from scratch rather than adopted, on a
 stack chosen for operability rather than novelty: FastAPI and PostgreSQL behind
-a React frontend, with LDAP authentication, email notifications, file
+a React frontend, with LDAP and OIDC authentication, email notifications, file
 attachments, a business-hours SLA engine and scheduled ticket creation.
 
 This paper describes the architecture, the decisions that shaped it, and the
@@ -137,9 +137,10 @@ Four things autogenerate gets wrong, all of which bit during construction:
 
 ### 3.1 Local and directory accounts side by side
 
-Every user has an `auth_source` of `local` or `ldap`. Local accounts hold an
-argon2 hash and never contact the directory. Anyone else is attempted against
-LDAP and provisioned on first successful bind.
+Every user has an `auth_source` of `local`, `ldap` or `oidc`. Local accounts
+hold an argon2 hash and never contact a directory. Anyone else is attempted
+against LDAP and provisioned on first successful bind, or arrives through
+single sign-on.
 
 The bind is the only proof of identity. The application never retrieves or
 compares password material — it attempts to bind as the user's DN with the
@@ -154,8 +155,9 @@ Roles come from directory group membership, with a local override that wins:
 effective_role = role_override or role
 ```
 
-`role` is refreshed from LDAP on every successful login. `role_override` is set
-by an administrator and survives directory changes. An administrator can promote
+`role` is refreshed on every successful login, from LDAP group membership or
+from the ID token's group claim. `role_override` is set by an administrator and
+survives directory changes. An administrator can promote
 someone without a directory change request, and a directory change cannot
 silently strip a deliberate local grant.
 
@@ -163,6 +165,41 @@ Group membership reads `memberOf` when the directory provides it, falling back
 to an explicit group search. FreeIPA populates `memberOf` natively; the fallback
 exists because the 389 Directory Server instance used for testing did not, and
 writing for both was cheaper than debugging the fixture.
+
+### 3.2a Single sign-on
+
+OIDC was added after LDAP and reuses the same role resolution: the ID token's
+group claim maps to admin or agent, an override still wins. Only the source of
+the assertion differs.
+
+Two decisions are worth stating because they are trades rather than
+implementations.
+
+**The ID token is verified, never merely decoded.** Its signature is checked
+against the provider's published JWKS with audience and issuer pinned, and the
+algorithm allowlist excludes `none`. Everything the application believes about
+the caller comes from that token, so this check is not a formality — it is the
+entire flow's security. The `state` parameter is a short-lived signed JWT rather
+than a server-side entry, which binds the callback to a request this application
+started without needing shared state across workers.
+
+**A verified address adopts a matching local account.** Rather than create a
+duplicate, an SSO sign-in for an address that already has a local account takes
+that account over, clearing its password. This is what an operator wants when
+they roll out SSO to an existing team: people keep their tickets and their
+history. It also means whoever can make the provider assert an address inherits
+that account. The assumption is that the provider is authoritative for the
+addresses it asserts — true of a company IdP for its own domain, false of one
+brokering identities it does not own, which is why the security review records
+it as a limitation rather than a feature.
+
+**Signing out is not signing out everywhere.** The obvious implementation ends
+the provider's session too, which is wrong by default: the person likely has
+other applications open against that provider, and this application is not
+entitled to close them. Local sign-out is the default and ending the provider
+session is a second, explicit choice. Providers vary in whether they support it
+at all, so the capability is read from the discovery document and the option
+hidden when it would do nothing.
 
 ### 3.3 Email verification
 
@@ -468,6 +505,12 @@ Recording gaps honestly is more useful than an implied claim of completeness.
   thousands.
 - **Polling, not events.** Notifications deliver within 30 seconds and schedules
   fire hourly.
+- **No SAML.** Single sign-on speaks OIDC only. An organisation standardised on
+  SAML needs an OIDC registration alongside it, or a broker such as Keycloak
+  translating between the two.
+- **Group-derived roles need groups in the token.** Providers that omit them —
+  Google Workspace, or Entra past its group-count overage limit — leave every
+  account a customer until an administrator sets an override.
 
 ---
 

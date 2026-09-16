@@ -92,13 +92,24 @@ the class of bug scanners cannot find.
 ### Roles and identity
 
 `User.effective_role` = `role_override` if set, else the stored `role` (from the
-last successful login / LDAP group mapping). `is_staff` = agent or admin.
-Two auth sources per user (`app/auth_api.py`): `local` (argon2, requires
-`email_verified` before login) and `ldap` (per-user bind via `app/ldap_client.py`;
-role comes from `ldap_agent_group` membership, but a local `role_override` still
-wins). Sessions are JWTs (HS256, `app/security.py`) in an httpOnly cookie named
-`relay_session`. Login is rate-limited per IP and per account (`app/ratelimit.py`,
-in-memory/per-process — a fleet would need Redis).
+last successful login, via LDAP group mapping or the ID token's group claim).
+`is_staff` = agent or admin. Three auth sources per user (`app/auth_api.py`):
+`local` (argon2, requires `email_verified` before login), `ldap` (per-user bind
+via `app/ldap_client.py`; role from `ldap_agent_group` membership), and `oidc`
+(`app/oidc.py`; role from `oidc_agent_group`/`oidc_admin_group` in the groups
+claim). A local `role_override` beats all of them. Sessions are JWTs (HS256,
+`app/security.py`) in an httpOnly cookie named `relay_session`. Login is
+rate-limited per IP and per account (`app/ratelimit.py`, in-memory/per-process —
+a fleet would need Redis).
+
+**OIDC specifics.** The ID token is verified against the provider's JWKS with
+audience and issuer pinned — never decoded unverified. `state` is a signed,
+short-lived JWT, not server-side state. A verified address **adopts** a matching
+`local` account (clears `password_hash`), which assumes the provider is
+authoritative for addresses it asserts. Logout is local-only by default;
+`?everywhere=true` returns an `end_session_endpoint` URL for the client to
+redirect to, and `/oidc/status` reports whether the provider supports that at
+all. OIDC config lives in `app/config.py` (env only), not the settings store.
 
 ### Settings: database-first with `.env` fallback
 
