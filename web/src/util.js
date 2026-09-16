@@ -10,8 +10,15 @@ export function relative(iso) {
   return `${Math.round(h / 24)}d ago`;
 }
 
+// A ticket can legitimately have no deadline (null due_at); say so rather than
+// counting down from the epoch.
+export const NO_DUE = "\u2014";
+
 export function countdown(iso) {
-  const left = new Date(iso).getTime() - Date.now();
+  if (!iso) return NO_DUE;
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) return NO_DUE;
+  const left = at - Date.now();
   const abs = Math.abs(left);
   const sign = left < 0 ? "-" : "";
   const h = Math.floor(abs / HOUR);

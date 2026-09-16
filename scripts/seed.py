@@ -9,6 +9,7 @@ from sqlalchemy import text  # noqa: E402
 
 from app.db import SessionLocal  # noqa: E402
 from app.models import Event, Ticket, utcnow  # noqa: E402
+from app.sla import Calendar  # noqa: E402
 
 NOW = utcnow()
 H = lambda h: NOW - timedelta(hours=h)  # noqa: E731
@@ -91,6 +92,8 @@ ROWS = [
 ]
 
 db = SessionLocal()
+# the same calendar the app uses, so seeded deadlines match a real ticket's
+cal = Calendar(db)
 db.execute(text("TRUNCATE tickets, events RESTART IDENTITY CASCADE"))
 db.execute(text("ALTER SEQUENCE ticket_ref_seq RESTART WITH 1048"))
 
@@ -99,12 +102,14 @@ for r in ROWS:
     age = r.pop("hours")
     fr = r.pop("first_response", None)
     res = r.pop("resolved", None)
+    created = H(age)
     t = Ticket(
         **r,
-        created_at=H(age),
+        created_at=created,
         updated_at=H(min([e[0] for e in evs], default=age)),
         first_response_at=H(fr) if fr else None,
         resolved_at=H(res) if res else None,
+        due_at=cal.deadline(created, r["priority"]),
     )
     db.add(t)
     db.flush()

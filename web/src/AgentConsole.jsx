@@ -206,7 +206,9 @@ function Detail({ t, meta, onChanged }) {
       </div>
 
       <div className="slabar mono" data-late={t.breaching}>
-        {OPEN_STATUSES.includes(t.status) ? (
+        {!OPEN_STATUSES.includes(t.status) ? (
+          <span style={{ fontFamily: "'IBM Plex Sans'" }}>{t.status} — the clock has stopped.</span>
+        ) : t.due_at ? (
           <>
             <span>{t.breaching ? "Past due by" : "Due in"}</span>
             <span>{countdown(t.due_at).replace("-", "")}</span>
@@ -215,7 +217,9 @@ function Detail({ t, meta, onChanged }) {
             </span>
           </>
         ) : (
-          <span style={{ fontFamily: "'IBM Plex Sans'" }}>{t.status} — the clock has stopped.</span>
+          <span style={{ fontFamily: "'IBM Plex Sans'" }}>
+            No deadline on this ticket — {hours}h target applies from the next priority change.
+          </span>
         )}
       </div>
 
