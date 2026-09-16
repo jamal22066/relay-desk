@@ -378,6 +378,46 @@ again. Never commit a raw export: pass it through `keycloak-dev/sanitise.py`,
 which strips the realm's private keys and refuses to write if anything
 key-shaped survives. `keycloak-dev/README.md` has the details.
 
+### Other identity providers
+
+Keycloak is the local test rig, not a requirement. Relay Desk reads the
+provider's discovery document and needs four things from it: an authorization
+endpoint, a token endpoint, a JWKS URI, and an ID token carrying `email` and a
+groups claim. Set the `OIDC_*` variables and any compliant provider works.
+
+The claim shape is where providers differ, and `OIDC_GROUPS_CLAIM` exists to
+absorb that:
+
+**Entra ID (Microsoft 365).** The `groups` claim contains group **object
+GUIDs**, not names, so `OIDC_AGENT_GROUP` must be the GUID unless the app
+registration is configured to emit names — which only works for groups synced
+from on-premises AD. Cleaner is to define App Roles on the registration and set
+`OIDC_GROUPS_CLAIM=roles`, which gives you names you choose. Watch the overage
+rule: past roughly 200 group memberships Entra drops the claim entirely and
+substitutes a pointer to Graph, which this application does not follow — every
+affected user would land as a customer. App Roles avoid that too.
+
+**Okta.** Groups are absent from the ID token until you add a groups claim to
+the authorization server and filter it. Once added they are plain names.
+
+**Google Workspace.** No groups claim exists in the ID token at all, so
+group-derived roles cannot work; reading group membership needs the Admin SDK,
+which is not implemented. Assign roles per account instead — a `role_override`
+set on the Accounts page beats the directory anyway. Google also publishes no
+`end_session_endpoint`, so the console hides *Sign out everywhere*.
+
+**SAML — not supported.** There is no SAML implementation here, and adding one
+is a larger job than a claim mapping. Three ways round it, in order of how
+little work they are:
+
+1. **Use the provider's OIDC endpoints instead.** Entra ID, Okta and Google all
+   speak both; an organisation that happens to use SAML for other applications
+   can usually register an OIDC app alongside it.
+2. **Put a broker in front.** Keycloak federates to a SAML IdP and presents
+   OIDC to the application — the same Keycloak this directory configures, doing
+   a real job rather than a test one.
+3. **Use LDAP**, which is already supported, where the directory is reachable.
+
 ---
 
 ## Configuration
@@ -511,6 +551,13 @@ Verify a backup by restoring it rather than trusting it:
   run logs to the journal; alerting on it is left to the operator.
 - **No password reset.** A local user who forgets their password needs an
   administrator and a SQL statement.
+- **No SAML.** Single sign-on is OIDC only. Organisations standardised on SAML
+  need an OIDC app registration alongside it, or a broker such as Keycloak
+  translating between the two. See *Other identity providers*.
+- **Group membership is read from the ID token only.** Providers that do not
+  put groups in the token — Google Workspace, or Entra past its group-count
+  overage limit — cannot drive roles automatically; those accounts arrive as
+  customers until an administrator sets a role override.
 - **Rate limiting is in-memory and per-process.** Adequate for a single
   instance; a fleet needs Redis or equivalent.
 - **`style-src 'unsafe-inline'`** remains in the CSP because components use

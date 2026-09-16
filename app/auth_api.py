@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import current_user
+from app.auth import current_user, optional_user
 from app.config import settings
 from app.db import get_db
 from app.ldap_client import authenticate as ldap_authenticate
@@ -137,9 +137,47 @@ def login(payload: LoginIn, request: Request, response: Response,
     return _me(user)
 
 
-@router.post("/logout", status_code=204)
-def logout(response: Response):
+class LogoutOut(BaseModel):
+    # None whenever the IdP session is being left alone, which is the default
+    idp_logout_url: str | None = None
+
+
+@router.post("/logout", response_model=LogoutOut)
+def logout(
+    response: Response,
+    everywhere: bool = False,
+    user: User | None = Depends(optional_user),
+    db: Session = Depends(get_db),
+):
+    """Clear the local session. Optionally end the provider's session too.
+
+    Signing out of this application does not, by itself, sign the person out of
+    their identity provider — they may well have other applications open
+    against it. `everywhere=true` is the explicit request to end that session as
+    well, and returns the URL the browser must be sent to; the provider will not
+    accept a back-channel call from us.
+    """
     response.delete_cookie(COOKIE, path="/")
+
+    if user is None or user.auth_source != "oidc":
+        return LogoutOut()
+
+    hint = user.oidc_id_token
+    # the token is spent either way: it is only kept to hint this logout, and a
+    # stored credential that outlives its purpose is a liability
+    if hint:
+        user.oidc_id_token = None
+        db.commit()
+
+    if not everywhere:
+        return LogoutOut()
+
+    from app.config import settings as env
+    from app.oidc import end_session_url
+
+    return LogoutOut(idp_logout_url=end_session_url(
+        hint, env.oidc_post_logout_redirect_uri or env.app_base_url or ""
+    ))
 
 
 @router.get("/me", response_model=Me)
@@ -208,10 +246,21 @@ def verify_email(payload: VerifyIn, response: Response, db: Session = Depends(ge
 
 @router.get("/oidc/status")
 def oidc_status():
-    """Tells the sign-in page whether to offer the SSO button."""
+    """What the client needs to know about SSO before and after signing in.
+
+    `end_session` says whether the provider supports RP-initiated logout.
+    Providers differ: Keycloak and Entra ID do, Google does not. The console
+    hides "Sign out everywhere" when it would be a no-op.
+    """
     from app.config import settings as env
 
-    return {"enabled": bool(env.oidc_enabled and env.oidc_client_id)}
+    enabled = bool(env.oidc_enabled and env.oidc_client_id)
+    if not enabled:
+        return {"enabled": False, "end_session": False}
+
+    from app.oidc import supports_end_session
+
+    return {"enabled": True, "end_session": supports_end_session()}
 
 
 @router.get("/oidc/start")
@@ -282,6 +331,7 @@ def oidc_callback(
 
     user.auth_source = "oidc"
     user.oidc_subject = ident.subject
+    user.oidc_id_token = ident.id_token
     user.display_name = ident.display_name
     user.email = ident.email
     user.email_verified = True

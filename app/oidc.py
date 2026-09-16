@@ -39,6 +39,10 @@ class OidcIdentity:
     email: str
     display_name: str
     groups: list[str]
+    # the raw, still-signed ID token. Kept only to pass back as id_token_hint
+    # on RP-initiated logout, which is how the provider knows whose session to
+    # end without us asserting it ourselves.
+    id_token: str = ""
 
     @property
     def is_admin(self) -> bool:
@@ -165,4 +169,52 @@ def exchange(code: str) -> OidcIdentity:
         email=email,
         display_name=(claims.get("name") or email).strip(),
         groups=groups,
+        id_token=id_token,
     )
+
+
+def supports_end_session() -> bool:
+    """Whether the provider advertises RP-initiated logout at all.
+
+    Not every provider does — Google, for one, publishes no
+    end_session_endpoint. The UI asks before offering to end a session that
+    cannot be ended, rather than showing a button that quietly does nothing.
+    """
+    try:
+        return bool(discovery().get("end_session_endpoint"))
+    except OidcError:
+        return False
+
+
+def end_session_url(id_token: str | None, post_logout_redirect: str = "") -> str | None:
+    """The provider's RP-initiated logout URL, or None if it offers none.
+
+    Ending the IdP session is deliberately not part of signing out of this
+    application: the person may have other applications open against the same
+    provider, and taking their session away everywhere is a bigger decision
+    than leaving this one. The caller asks for this explicitly.
+
+    Returns None rather than raising when the provider does not advertise
+    end_session_endpoint, or when it is unreachable — failing to reach the
+    provider must not prevent a local sign-out.
+    """
+    try:
+        endpoint = discovery().get("end_session_endpoint")
+    except OidcError:
+        return None
+    if not endpoint:
+        return None
+
+    from urllib.parse import urlencode
+
+    params = {}
+    if id_token:
+        params["id_token_hint"] = id_token
+    else:
+        # without a hint the provider cannot identify the session, and most
+        # will show an "are you sure" interstitial instead
+        params["client_id"] = settings.oidc_client_id
+    if post_logout_redirect:
+        params["post_logout_redirect_uri"] = post_logout_redirect
+
+    return endpoint + ("&" if "?" in endpoint else "?") + urlencode(params)

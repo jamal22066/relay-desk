@@ -17,14 +17,15 @@ export const auth = {
     call("/api/auth/login", { method: "POST", headers: json, body: JSON.stringify({ email, password }) }),
   register: (payload) =>
     call("/api/auth/register", { method: "POST", headers: json, body: JSON.stringify(payload) }),
-  logout: () => call("/api/auth/logout", { method: "POST" }),
+  // everywhere=true additionally ends the identity provider's session,
+  // and resolves to { idp_logout_url } for the caller to redirect to
+  logout: (everywhere = false) =>
+    call(`/api/auth/logout${everywhere ? "?everywhere=true" : ""}`, { method: "POST" }),
   oidcStatus: () => call("/api/auth/oidc/status"),
   oidcCallback: (code, state) =>
     call("/api/auth/oidc/callback", {
       method: "POST", headers: json, body: JSON.stringify({ code, state }),
     }),
-  verify: (token) =>
-    call("/api/auth/verify", { method: "POST", headers: json, body: JSON.stringify({ token }) }),
   verify: (token) =>
     call("/api/auth/verify", { method: "POST", headers: json, body: JSON.stringify({ token }) }),
 };

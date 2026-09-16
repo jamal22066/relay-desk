@@ -14,6 +14,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState(null);
   const [route, setRoute] = useState(() => parse());
+  const [canEndIdp, setCanEndIdp] = useState(false);
   // an authorisation code is single-use, and StrictMode runs effects twice in
   // development, so the second exchange would fail and overwrite the success
   const exchanged = useRef(false);
@@ -63,10 +64,22 @@ export default function App() {
     api.meta().then(setMeta).catch((e) => setErr(e.message));
   }, [me]);
 
-  const signOut = async () => {
-    await auth.logout().catch(() => {});
+  // Not every provider supports RP-initiated logout — Google publishes no
+  // end_session_endpoint — so ask before offering to end a session we cannot end.
+  useEffect(() => {
+    if (me?.auth_source !== "oidc") { setCanEndIdp(false); return; }
+    auth.oidcStatus().then((r) => setCanEndIdp(!!r.end_session)).catch(() => setCanEndIdp(false));
+  }, [me]);
+
+  // Signing out of Relay Desk leaves the identity provider's session alone —
+  // the person may have other applications open against it. "Sign out
+  // everywhere" is the explicit request to end that session too, which the
+  // provider only accepts as a browser redirect.
+  const signOut = async (everywhere = false) => {
+    const r = await auth.logout(everywhere).catch(() => null);
     setMe(null);
     setMeta(null);
+    if (everywhere && r?.idp_logout_url) window.location.href = r.idp_logout_url;
   };
 
   if (!ready) return <div className="desk"><div className="loading">…</div></div>;
@@ -88,7 +101,13 @@ export default function App() {
             <span className="dsub">
               {me.display_name} · {me.role === "customer" ? me.org : "Support"}
             </span>
-            <button className="btn ghost" onClick={signOut}>Sign out</button>
+            <button className="btn ghost" onClick={() => signOut(false)}>Sign out</button>
+            {me.auth_source === "oidc" && canEndIdp && (
+              <button className="btn ghost" onClick={() => signOut(true)}
+                      title="Also end your session with the identity provider">
+                Sign out everywhere
+              </button>
+            )}
           </>
         )}
       </div>

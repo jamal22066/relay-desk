@@ -164,6 +164,8 @@ class User(Base):
     ldap_dn: Mapped[str | None] = mapped_column(String(400), nullable=True)
     # the IdP's stable subject identifier; email can change, sub does not
     oidc_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # kept only to pass as id_token_hint on RP-initiated logout
+    oidc_id_token: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # role resolution: role_override wins when set, else the LDAP group mapping,
     # else this stored value from the last successful login

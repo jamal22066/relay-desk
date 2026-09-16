@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     oidc_groups_claim: str = "groups"
     oidc_agent_group: str = ""
     oidc_admin_group: str = ""
+    # where the provider sends the browser back after an RP-initiated logout.
+    # Must be registered with the provider. Falls back to app_base_url.
+    oidc_post_logout_redirect_uri: str = ""
 
     upload_dir: str = "/var/lib/relay/uploads"
     upload_max_bytes: int = 10 * 1024 * 1024
