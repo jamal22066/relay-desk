@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import mailer
 from app import settings_store as store
 from app.auth import current_user, require_admin
 from app.db import get_db
@@ -100,9 +101,10 @@ def test_smtp(payload: SmtpTest):
     # The allowlist guards automated notification routing, where a bug could mail
     # many people. This is a deliberate one-off with fixed content, so it sends
     # regardless — but says so when the recipient is outside the list.
-    outside = not allowed(payload.to)
+    cfg = mailer.config(db)
+    outside = not allowed(payload.to, cfg.allowlist)
     try:
-        send(build(payload.to, "", "Relay desk settings test",
+        send(cfg, build(cfg, payload.to, "", "Relay desk settings test",
                    "Sent from the admin settings page. Delivery is working."))
         note = " (outside the allowlist — notifications to this address would be suppressed)" if outside else ""
         return {"ok": True, "detail": f"Sent to {payload.to}{note}"}
@@ -342,18 +344,18 @@ def list_outbox(status: str | None = None, limit: int = 100,
                 db: Session = Depends(get_db)):
     from sqlalchemy import select
 
-    from app.config import settings as env
     from app.models import Outbox
 
+    cfg = mailer.config(db)
     stmt = select(Outbox).order_by(Outbox.id.desc()).limit(min(limit, 500))
     if status:
         stmt = stmt.where(Outbox.status == status)
 
     rows = db.scalars(stmt).all()
     return {
-        "from_address": env.smtp_from or "(not configured)",
-        "smtp_enabled": env.smtp_enabled,
-        "allowlist": env.allowlist or ["(empty — everything suppresses)"],
+        "from_address": cfg.from_addr or "(not configured)",
+        "smtp_enabled": cfg.enabled,
+        "allowlist": cfg.allowlist or ["(empty — everything suppresses)"],
         "messages": [
             {
                 "id": r.id,

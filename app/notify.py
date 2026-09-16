@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import mailer
 from app.mailer import allowed
 from app.models import Event, Outbox, Ticket, User, utcnow
 
@@ -13,18 +14,25 @@ log = logging.getLogger(__name__)
 
 def _queue(db: Session, *, to_email: str, to_name: str, subject: str, body: str,
            reason: str, ticket_ref: str, event_id: int | None = None) -> None:
-    if not settings.smtp_enabled or not to_email:
+    cfg = mailer.config(db)
+    if not cfg.enabled or not to_email:
         return
     db.add(Outbox(
         to_email=to_email.lower().strip(), to_name=to_name or "",
         subject=subject, body=body, reason=reason,
         ticket_ref=ticket_ref, event_id=event_id,
-        status="queued" if allowed(to_email) else "suppressed",
+        status="queued" if allowed(to_email, cfg.allowlist) else "suppressed",
     ))
 
 
-def _link(ref: str) -> str:
-    return f"{settings.app_base_url.rstrip('/')}/t/{ref}"
+def _base_url(db: Session) -> str:
+    from app import settings_store as store
+
+    return (store.get(db, "app_base_url") or "").rstrip("/")
+
+
+def _link(db: Session, ref: str) -> str:
+    return f"{_base_url(db)}/t/{ref}"
 
 
 def _agent_email(db: Session, display_name: str) -> tuple[str, str] | None:
@@ -46,12 +54,12 @@ def on_event(db: Session, t: Ticket, ev: Event) -> None:
             if who:
                 _queue(db, to_email=who[0], to_name=who[1],
                        subject=f"[{t.ref}] {t.requester} replied: {t.subject}",
-                       body=f"{ev.actor} replied to {t.ref}.\n\n{ev.body}\n\n{_link(t.ref)}",
+                       body=f"{ev.actor} replied to {t.ref}.\n\n{ev.body}\n\n{_link(db, t.ref)}",
                        reason="customer_reply", ticket_ref=t.ref, event_id=ev.id)
     else:
         _queue(db, to_email=t.email, to_name=t.requester,
                subject=f"[{t.ref}] {t.subject}",
-               body=f"{ev.actor} replied to your ticket.\n\n{ev.body}\n\n{_link(t.ref)}",
+               body=f"{ev.actor} replied to your ticket.\n\n{ev.body}\n\n{_link(db, t.ref)}",
                reason="agent_reply", ticket_ref=t.ref, event_id=ev.id)
 
 
@@ -62,7 +70,7 @@ def on_patch(db: Session, t: Ticket, changes: dict, actor: str) -> None:
         _queue(db, to_email=t.email, to_name=t.requester,
                subject=f"[{t.ref}] {status}: {t.subject}",
                body=f"Your ticket has been marked {status.lower()} by {actor}.\n\n"
-                    f"If this isn't sorted, reply and it reopens.\n\n{_link(t.ref)}",
+                    f"If this isn't sorted, reply and it reopens.\n\n{_link(db, t.ref)}",
                reason=f"ticket_{status.lower()}", ticket_ref=t.ref)
 
     assignee = changes.get("assignee")
@@ -73,7 +81,7 @@ def on_patch(db: Session, t: Ticket, changes: dict, actor: str) -> None:
                    subject=f"[{t.ref}] Assigned to you: {t.subject}",
                    body=f"{actor} assigned {t.ref} to you.\n\n"
                         f"{t.priority} · {t.category} · {t.requester} at {t.org}\n\n"
-                        f"{t.body[:400]}\n\n{_link(t.ref)}",
+                        f"{t.body[:400]}\n\n{_link(db, t.ref)}",
                    reason="assigned", ticket_ref=t.ref)
 
 
@@ -88,7 +96,7 @@ def on_new_ticket(db: Session, t: Ticket) -> None:
             body=(
                 f"Thanks {t.requester}, your ticket is logged as {t.ref}.\n\n"
                 f"{t.priority} · {t.category}\n\n"
-                f"Someone will reply here. You can follow it at:\n{_link(t.ref)}"
+                f"Someone will reply here. You can follow it at:\n{_link(db, t.ref)}"
             ),
             reason="ticket_receipt", ticket_ref=t.ref,
         )
@@ -116,7 +124,7 @@ def on_new_ticket(db: Session, t: Ticket) -> None:
             body=(
                 f"{t.requester} at {t.org} filed a new ticket.\n\n"
                 f"{t.priority} · {t.category} · due {t.due_at:%Y-%m-%d %H:%M} UTC\n\n"
-                f"{t.body[:600]}\n\n{_link(t.ref)}"
+                f"{t.body[:600]}\n\n{_link(db, t.ref)}"
             ),
             reason="new_ticket", ticket_ref=t.ref,
         )
@@ -156,7 +164,7 @@ def on_account_event(db: Session, user: User, stage: str) -> None:
                 f"{user.display_name} {lead}\n\n"
                 f"{user.email}\n"
                 f"Company: {user.org}\n\n"
-                f"Manage accounts at {settings.app_base_url.rstrip('/')}/settings/users"
+                f"Manage accounts at {_base_url(db)}/settings/users"
             ),
             reason=f"account_{stage}", ticket_ref=None,
         )
@@ -185,7 +193,7 @@ def on_schedule_failed(db: Session, sch, error: str) -> None:
                 f'The schedule "{sch.name}" (#{sch.id}) did not run and is now '
                 f"marked failed. It will not fire again until reactivated.\n\n"
                 f"{error}\n\n"
-                f"Review it at {settings.app_base_url.rstrip('/')}/settings/schedules"
+                f"Review it at {_base_url(db)}/settings/schedules"
             ),
             reason="schedule_failed", ticket_ref=None,
         )

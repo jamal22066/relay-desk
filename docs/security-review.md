@@ -182,6 +182,30 @@ Local accounts must confirm their address before signing in. Tokens are signed,
 `purpose` claim so a session token cannot be substituted. Only with verification
 in place is it safe to widen the recipient allowlist.
 
+### 7a. The recipient allowlist ignored the administrator (Medium — fixed)
+
+The allowlist is the guard that keeps a development instance from mailing real
+addresses, and the settings page presents it as editable at runtime. It was
+not. `settings_store` writes the database row but does not update
+`app.config.settings`, and the whole mail path — `mailer.allowed`, `notify`, the
+mail worker, the outbox view — read that environment object, loaded once at
+import. Tightening the allowlist in the admin interface appeared to save and
+changed nothing, and the Mail queue page kept displaying the old sending address
+while delivery used it too.
+
+Demonstrated before the fix: with a database override setting the allowlist to
+`@nope.test`, `allowed("x@nope.test")` still returned `False`. The gap is
+silent, which is what makes it worth recording — an operator narrowing the
+allowlist before a test run would have believed a guard that was not there, and
+an operator widening it would have wondered why nothing sent.
+
+Mail settings now resolve through `mailer.config(db)`, which is `settings_store`
+resolution — database value, then `.env`, then default — so the value shown, the
+value saved and the value used are the same. Verified after the fix: the same
+override makes `allowed` return `True`, and the built message carries the
+overridden From address and Message-ID domain. `smtp_timeout` remains
+environment-only, since it is not a settings-store key.
+
 ---
 
 ## New subsystems assessed

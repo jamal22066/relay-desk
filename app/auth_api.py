@@ -189,14 +189,15 @@ def _send_verification(db: Session, user: User) -> None:
     """Queue a confirmation link. Bypasses the allowlist deliberately: the
     address was just typed by whoever is registering, the content is fixed,
     and no ticket data is included."""
-    from app.config import settings as env
+    from app import mailer
     from app.models import Outbox
 
-    if not env.smtp_enabled:
+    cfg = mailer.config(db)
+    if not cfg.enabled:
         return
 
     token = issue_verify(user.id, user.email)
-    link = f"{env.app_base_url.rstrip('/')}/verify?token={token}"
+    link = f"{cfg.base_url.rstrip('/')}/verify?token={token}"
     db.add(Outbox(
         to_email=user.email,
         to_name=user.display_name,

@@ -11,6 +11,7 @@ from sqlalchemy import select  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
+from app import mailer
 from app.mailer import allowed, build, send  # noqa: E402
 from app.models import Outbox, utcnow  # noqa: E402
 
@@ -33,11 +34,13 @@ def drain(limit: int = 20) -> int:
             .with_for_update(skip_locked=True)
         ).all()
 
+        cfg = mailer.config(db)
+
         for row in rows:
             # Re-check: the allowlist may have tightened since queueing.
             # Verification links are exempt — the address was just typed by
             # whoever is registering, and the content is fixed with no ticket data.
-            if row.reason != "verify_email" and not allowed(row.to_email):
+            if row.reason != "verify_email" and not allowed(row.to_email, cfg.allowlist):
                 row.status = "suppressed"
                 row.last_error = "recipient not in allowlist"
                 log.info("suppressed %s -> %s", row.id, row.to_email)
@@ -46,7 +49,8 @@ def drain(limit: int = 20) -> int:
 
             row.attempts += 1
             try:
-                send(build(row.to_email, row.to_name, row.subject, row.body, row.ticket_ref))
+                send(cfg, build(cfg, row.to_email, row.to_name, row.subject,
+                                row.body, row.ticket_ref))
                 row.status = "sent"
                 row.sent_at = utcnow()
                 row.last_error = None
@@ -70,9 +74,14 @@ def drain(limit: int = 20) -> int:
 
 if __name__ == "__main__":
     once = "--once" in sys.argv
-    if not settings.smtp_enabled:
-        log.warning("SMTP_ENABLED is false — nothing will send")
-    log.info("allowlist: %s", settings.allowlist or "(empty — everything suppresses)")
+    _db = SessionLocal()
+    try:
+        _cfg = mailer.config(_db)
+    finally:
+        _db.close()
+    if not _cfg.enabled:
+        log.warning("email is disabled — nothing will send")
+    log.info("allowlist: %s", _cfg.allowlist or "(empty — everything suppresses)")
 
     while True:
         n = drain()
