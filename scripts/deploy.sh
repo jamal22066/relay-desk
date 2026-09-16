@@ -27,6 +27,18 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"   # seconds to wait for /healthz
 step() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 abort() { printf '\033[31mDEPLOY ABORTED: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# The containers are rootless and belong to the service user. As root, podman
+# sees none of them and every step below would fail with a confusing "no such
+# container" — so refuse early with a clear message instead.
+if [ "$(id -u)" -eq 0 ]; then
+  abort "run this as the service user (relay), not root — the containers are rootless"
+fi
+
+# Entered via `su - relay` rather than a fresh login, XDG_RUNTIME_DIR can be
+# unset; podman then reads the wrong state directory and reports that the
+# containers do not exist. Anchor it to this user's runtime dir.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 # --- preconditions: refuse to deploy from a divergent server tree ----------
 # Checked before anything is touched, so a dirty or ahead tree costs nothing.
 step "Preconditions"
@@ -83,6 +95,10 @@ podman-compose down
 podman-compose up -d
 
 # --- 5. wait for health, bounded -------------------------------------------
+# /healthz needs no session, so it answers over plain HTTP on the loopback even
+# though COOKIE_SECURE=true makes authenticated endpoints reject an insecure
+# cookie. That is why this is http://127.0.0.1:8080 and not https — do not
+# "correct" it; an authenticated probe here would 401 for the cookie reason.
 step "5. Waiting for $HEALTH_URL (up to ${HEALTH_TIMEOUT}s)"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
 until curl -fsS -o /dev/null "$HEALTH_URL"; do
@@ -100,7 +116,9 @@ echo "healthy"
 # resolution is visible here, not weeks later when someone reports missing mail.
 # The password is never read or printed.
 step "6. Resolved SMTP config (as the running app sees it)"
-podman exec "$APP_CONTAINER" python - <<'PY'
+# -i so podman forwards this heredoc to the container's stdin; without it
+# `python -` reads nothing and the step silently prints an empty config.
+podman exec -i "$APP_CONTAINER" python - <<'PY'
 from app import mailer
 from app.db import SessionLocal
 
