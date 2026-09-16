@@ -27,6 +27,11 @@ Local development uses seed data (`scripts/seed.py`, `scripts/seed_users.py`).
 Keep the two straight — never point local tooling or destructive commands at
 production.
 
+**Production deployment details live in `CLAUDE.local.md`** — the host, access,
+container and systemd layout, and how prod config differs from local. That file
+is gitignored and machine-specific, so it is kept out of the public repo; read
+it before doing anything against production.
+
 ## Common commands
 
 Backend (from repo root, with `.venv` active):
