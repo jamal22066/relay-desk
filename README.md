@@ -317,6 +317,67 @@ outside it, to prove group mapping denies as well as grants.
 | `sam.jones@example.com` | agent |
 | `ext@example.com` | customer |
 
+### Single sign-on test realm
+
+`keycloak-dev/relay-desk-realm.json` is an export of the local Keycloak realm
+used to develop OIDC, so the test IdP can be rebuilt from scratch. Import it
+into a throwaway container:
+
+    # substitute the two placeholders first — the committed file has neither a
+    # usable client secret nor a usable password
+    export KC_CLIENT_SECRET='choose-something'
+    export KC_TEST_PASSWORD='choose-something-else'
+    mkdir -p /tmp/kc-import
+    sed -e "s/CHANGE_ME_KEYCLOAK_CLIENT_SECRET/$KC_CLIENT_SECRET/" \
+        -e "s/CHANGE_ME_KEYCLOAK_TEST_PASSWORD/$KC_TEST_PASSWORD/" \
+        keycloak-dev/relay-desk-realm.json > /tmp/kc-import/relay-desk-realm.json
+
+    podman run -d --name relay-keycloak -p 127.0.0.1:8081:8080 \
+      -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin \
+      -v /tmp/kc-import:/opt/keycloak/data/import:ro \
+      quay.io/keycloak/keycloak:latest start-dev --import-realm
+
+Set `OIDC_CLIENT_SECRET` in `.env` to the same value as `KC_CLIENT_SECRET`.
+The realm comes up at `http://127.0.0.1:8081/realms/relay-desk`, with the
+`relay-desk` client already holding `http://127.0.0.1:5173/*` as both a redirect
+and a post-logout redirect URI.
+
+Group membership drives the role, exactly as with the directory:
+
+| Account | Keycloak group | Resolves as |
+|---|---|---|
+| `admin@example.com` | `administrators` | admin |
+| `agent@example.com` | `support-staff` | agent |
+| `customer@example.com` | none | customer |
+
+A local `role_override` still beats whatever the IdP claims.
+
+Two things are deliberately absent from the committed export. The realm's
+signing and encryption keys were stripped — Keycloak generates fresh ones on
+import, and a private key that signs ID tokens has no business in a repository.
+User passwords are the placeholder rather than the original PBKDF2 hashes, so
+the file carries no credential material at all.
+
+Re-exporting is not quite the documented one-liner: `start-dev` holds an
+exclusive lock on its H2 file, so `kc.sh export` cannot run inside the live
+container. Stop it, copy the data out, and export from a throwaway container
+against that copy:
+
+    podman stop relay-keycloak
+    podman cp relay-keycloak:/opt/keycloak/data /tmp/kc-data
+    chmod -R 777 /tmp/kc-data /tmp/kc-export
+    podman run --rm -v /tmp/kc-data/data:/opt/keycloak/data \
+      -v /tmp/kc-export:/tmp/export quay.io/keycloak/keycloak:latest \
+      export --dir /tmp/export --realm relay-desk --users realm_file
+    podman start relay-keycloak
+
+`podman stop` keeps the realm — the data lives in the container's writable
+layer, so only `podman rm` destroys it. If the port bind fails on restart, a
+stale `containers-rootlessport` process is still holding 8081; kill it and start
+again. Never commit a raw export: pass it through `keycloak-dev/sanitise.py`,
+which strips the realm's private keys and refuses to write if anything
+key-shaped survives. `keycloak-dev/README.md` has the details.
+
 ---
 
 ## Configuration
