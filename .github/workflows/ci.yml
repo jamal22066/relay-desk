@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: relay_dev
+          POSTGRES_DB: relaydesk
+        ports:
+          - 5432:5432
+        # steps must not start until the database is actually accepting
+        # connections, or alembic races the container's first boot
+        options: >-
+          --health-cmd "pg_isready -U relay -d relaydesk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # the scripts read these; one password for every seeded account
+      SEED_PASSWORD: ci-test-password
+      RELAY_API: http://127.0.0.1:8000/api
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: relay
+      PGPASSWORD: relay_dev
+      PGDATABASE: relaydesk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          # libmagic1 backs python-magic, which sniffs upload content types;
+          # postgresql-client gives the test scripts psql
+          sudo apt-get install -y --no-install-recommends libmagic1 postgresql-client
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the frontend
+        # the backend serves web/dist as ./static, so a broken build is a
+        # broken deployment — fail here rather than discovering it on the host
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Write .env for the run
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL=postgresql+psycopg://relay:relay_dev@127.0.0.1:5432/relaydesk
+          SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')
+          UPLOAD_DIR=${{ runner.temp }}/relay-uploads
+          ENVIRONMENT=production
+          SMTP_ENABLED=false
+          LDAP_ENABLED=false
+          OIDC_ENABLED=false
+          EOF
+          mkdir -p "${{ runner.temp }}/relay-uploads"
+          # never print the file: it holds a generated SECRET_KEY
+          echo "wrote .env ($(wc -l < .env) lines)"
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Seed demo data
+        run: |
+          python scripts/seed.py
+          python scripts/seed_users.py
+
+      - name: Start the application
+        run: |
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > "${{ runner.temp }}/uvicorn.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/healthz > /dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not become healthy; log follows" >&2
+          cat "${{ runner.temp }}/uvicorn.log" >&2
+          exit 1
+
+      # Each suite runs even if an earlier one failed, so one run reports every
+      # problem. The job still fails, because each step's exit code stands.
+      - name: Authorisation boundary (guard_test.sh)
+        run: ./scripts/guard_test.sh
+
+      - name: Service levels (sla_test.sh)
+        if: ${{ !cancelled() }}
+        run: ./scripts/sla_test.sh
+
+      - name: Soft deletion (delete_test.sh)
+        if: ${{ !cancelled() }}
+        run: ./scripts/delete_test.sh
+
+      - name: Ticket lifecycle (smoke.sh)
+        if: ${{ !cancelled() }}
+        run: ./scripts/smoke.sh
+
+      - name: Server log
+        if: failure()
+        run: cat "${{ runner.temp }}/uvicorn.log"
