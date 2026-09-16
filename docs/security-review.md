@@ -3,7 +3,8 @@
 **Relay Desk** · Second review, September 2026
 Reviewer: Jamal Nasir · Scope: full application, the reference container
 deployment, and the attachment, scheduling, backup and single sign-on
-subsystems added since the first review.
+subsystems added since the first review, plus a penetration test of the running
+instance.
 Self-assessed. No independent review has been performed.
 
 ---
@@ -24,6 +25,12 @@ Automated scanning again found zero application-logic issues. Both real findings
 this round came from forming a hypothesis about a specific code path and
 measuring it — one hypothesis was confirmed, one was wrong, and the measurement
 is what distinguished them.
+
+A penetration test of the running instance followed. The authorisation boundary
+held under direct attack, including the file-on-an-internal-note case it exists
+to defend. It surfaced two Low findings — account enumeration via the
+registration endpoint, and a per-account lockout that punished the victim rather
+than the attacker — both since fixed and re-verified against the live server.
 
 ---
 
@@ -385,6 +392,76 @@ not be repurposed for one.
 
 ---
 
+## Penetration test of the running instance
+
+A grey-box pass against a live instance, source-informed, across three roles
+(customer, agent, admin) plus anonymous. The goal was to break the invariants
+the earlier sections assert rather than to re-read the code. What held is worth
+recording as plainly as what did not.
+
+**The authorisation boundary held under direct attack.** The sharpest test:
+an internal note *carrying a file attachment* was planted on a customer's own
+ticket, then reached for as that customer. Ticket-ownership scoping passes —
+it is her ticket — so only the note's kind stands between her and the file. The
+note never appeared in her portal view, and a direct request for the attachment
+by id returned 404 to the ticket's owner and to other customers, 200 only to
+staff, with no bytes served. This is the file-on-an-internal-note case the
+architecture is built to handle, confirmed end to end rather than assumed.
+
+**Also confirmed, each by attempting the bypass:** cross-customer IDOR on
+tickets, portal replies and attachments (403/404); SQL injection in search
+(inert — the query is parameterised through SQLAlchemy); session-cookie forgery
+via `alg:none`, payload tampering with the signature kept, and HS256 re-signing
+under guessed keys (all 401, and the role is re-derived from the database at
+authorisation time regardless of the token's claim); `role: admin` supplied at
+registration (ignored — the account is created a customer); the agent/admin
+split, tested with a genuine non-admin agent session against `/api/admin/*`
+(403); attachment content-type spoofing, HTML and SVG rejected by byte-sniffing;
+the `Range` header parser (a 10,000-range header served in 11 ms, stripped, no
+quadratic blow-up); and the OIDC `state` and `next` handling (forged state
+rejected, `next=//evil.com` reset to `/`).
+
+### PT-1. Account enumeration via registration (Low — fixed)
+
+`POST /auth/register` answered `409 "An account with that address already
+exists"` for a registered address and `201` for a new one, so anyone could test
+whether an address had an account. Login was already careful to give one generic
+message for both the unknown-account and wrong-password cases; registration
+undid that.
+
+Registration now answers identically either way — the same `201` and the same
+response shape, built from the submitted values — and creates nothing on a
+collision. The real owner is told out of band instead: a one-off notice email
+("you already have an account") goes to the registered address, which alerts
+them without disclosing anything to whoever made the request. The password is
+hashed before the existence check on both paths, so argon2's cost cannot be used
+as a timing oracle for the same fact the status code used to leak.
+
+### PT-2. Account-lockout denial of service (Low — fixed)
+
+Login recorded a per-account rate-limit hit on *every* attempt, before the
+password was checked. Five wrong guesses against a known address therefore
+locked out that address's real owner: their correct password returned `429`
+along with everyone else's. Confirmed against a seeded account before the fix.
+
+The per-account budget now counts *failed* attempts only. The pre-authentication
+gate enforces the per-source-IP budget alone; a wrong credential spends one of
+the account's failure tokens through a new `ratelimit.fail`, and a correct one
+never touches that budget. A brute-force run against one account is throttled
+exactly as before — five failures then `429` — but the account's owner is never
+turned away by someone else's guesses, and a successful login clears the
+counter, erasing an attacker's progress. Verified: after an attacker trips the
+lockout, the victim's correct password still returns `200`.
+
+Both are Low: PT-1 discloses only whether an address is registered, and PT-2 is
+a temporary, self-clearing lockout of a single named account, not a service-wide
+outage. Neither crosses the authorisation boundary. They are recorded because a
+generic login message paired with a talkative registration endpoint, and a
+lockout that punishes the victim rather than the attacker, are the kind of small
+inconsistencies that are cheap to fix and awkward to explain later.
+
+---
+
 ## 9. Process findings
 
 ### 9.1 Security tooling breaks the application it audits
@@ -438,6 +515,9 @@ deployment.
   this is not.
 - **No SAML.** Single sign-on is OIDC only; a SAML-only organisation needs a
   broker in front.
+- **Rate limiting remains in-memory and per-process** (see below); the
+  failure-only per-account budget fixes the lockout DoS but still does not share
+  counters across instances.
 - `style-src 'unsafe-inline'` in the CSP, because components use inline styles.
 - Rate limiting is in-memory and per-process; multiple instances do not share
   counters.

@@ -130,6 +130,38 @@ def on_new_ticket(db: Session, t: Ticket) -> None:
         )
 
 
+def on_duplicate_signup(db: Session, existing: User) -> None:
+    """Tell the real account owner that a registration used their address.
+
+    The registration endpoint answers identically whether or not an address is
+    already registered, so it cannot be used to enumerate accounts. The person
+    who owns the address still deserves to know an attempt was made — and if it
+    was them, forgetting they had an account, this is the nudge to sign in.
+
+    Bypasses the allowlist deliberately, like verification: the recipient is a
+    real, already-verified account and the content carries no ticket data.
+    """
+    cfg = mailer.config(db)
+    if not cfg.enabled:
+        return
+    db.add(Outbox(
+        to_email=existing.email,
+        to_name=existing.display_name,
+        subject="You already have a Relay Desk account",
+        body=(
+            f"Hello {existing.display_name},\n\n"
+            f"Someone just tried to register a Relay Desk account with this "
+            f"address. You already have one, so nothing was created.\n\n"
+            f"If this was you, simply sign in at {_base_url(db)} — or use the "
+            f"password reset if you have forgotten your password. If it was not "
+            f"you, no action is needed; your account was not changed.\n"
+        ),
+        reason="duplicate_signup",
+        ticket_ref=None,
+        status="queued",  # a security notice to a real owner bypasses the allowlist
+    ))
+
+
 def on_account_event(db: Session, user: User, stage: str) -> None:
     """Tell administrators about a signup or a confirmed address.
 

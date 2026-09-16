@@ -8,7 +8,7 @@ from app.config import settings
 from app.db import get_db
 from app.ldap_client import authenticate as ldap_authenticate
 from app.models import User, utcnow
-from app.ratelimit import check as rl_check, clear as rl_clear
+from app.ratelimit import check as rl_check, clear as rl_clear, fail as rl_fail
 from app.verify import issue as issue_verify, read as read_verify
 from app.security import COOKIE, hash_password, issue_token, needs_rehash, verify_password
 
@@ -63,16 +63,35 @@ def register(payload: RegisterIn, request: Request, response: Response,
     # same per-IP cap as login
     rl_check(request)
     email = payload.email.lower().strip()
+
+    # Hash unconditionally, before the existence check, so the two paths take
+    # the same time — argon2 dominates the cost, and skipping it on a collision
+    # would leak account existence through response latency.
+    password_hash = hash_password(payload.password)
+
+    from app import notify
+
     exists = db.scalar(select(User).where(func.lower(User.email) == email))
     if exists:
-        raise HTTPException(409, "An account with that address already exists")
+        # Answer exactly as for a new address — same 201, same shape, built from
+        # the submitted values — so registration cannot confirm who has an
+        # account. The real owner is told out of band; nothing is created.
+        notify.on_duplicate_signup(db, exists)
+        db.commit()
+        return Me(
+            email=email,
+            display_name=payload.display_name.strip(),
+            org=payload.org.strip() or "Unspecified",
+            role="customer",
+            auth_source="local",
+        )
 
     user = User(
         email=email,
         display_name=payload.display_name.strip(),
         org=payload.org.strip() or "Unspecified",
         auth_source="local",
-        password_hash=hash_password(payload.password),
+        password_hash=password_hash,
         role="customer",
         last_login_at=utcnow(),
     )
@@ -81,7 +100,6 @@ def register(payload: RegisterIn, request: Request, response: Response,
     db.refresh(user)
 
     _send_verification(db, user)
-    from app import notify
     notify.on_account_event(db, user, "signup")
     db.commit()
     # no session: the address must be confirmed first
@@ -92,16 +110,23 @@ def register(payload: RegisterIn, request: Request, response: Response,
 def login(payload: LoginIn, request: Request, response: Response,
           db: Session = Depends(get_db)):
     email = payload.email.lower().strip()
-    rl_check(request, email)
+    rl_check(request)
+
+    def _deny():
+        # a wrong credential: spend one of the account's failed-attempt tokens,
+        # which throttles a brute-force run without ever blocking the real owner
+        rl_fail(request, email)
+        raise HTTPException(401, "Those details did not match an account")
+
     user = db.scalar(select(User).where(func.lower(User.email) == email))
 
     if user is not None and not user.is_active:
-        raise HTTPException(401, "Those details did not match an account")
+        _deny()
 
     # local accounts authenticate locally and never touch the directory
     if user is not None and user.auth_source == "local":
         if not verify_password(payload.password, user.password_hash):
-            raise HTTPException(401, "Those details did not match an account")
+            _deny()
         if not user.email_verified:
             _send_verification(db, user)
             raise HTTPException(
@@ -116,7 +141,7 @@ def login(payload: LoginIn, request: Request, response: Response,
         if ident is None:
             # same cost and message as a local failure
             hash_password(payload.password)
-            raise HTTPException(401, "Those details did not match an account")
+            _deny()
 
         if user is None:
             user = User(email=ident.email, org="Directory", auth_source="ldap")
