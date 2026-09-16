@@ -143,7 +143,7 @@ CATEGORIES = {
 }
 
 
-AUTH_SOURCES = ("local", "ldap")
+AUTH_SOURCES = ("local", "ldap", "oidc")
 ROLES = ("admin", "agent", "customer")
 
 
@@ -162,6 +162,8 @@ class User(Base):
     auth_source: Mapped[str] = mapped_column(String(16), default="local")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ldap_dn: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    # the IdP's stable subject identifier; email can change, sub does not
+    oidc_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     # role resolution: role_override wins when set, else the LDAP group mapping,
     # else this stored value from the last successful login

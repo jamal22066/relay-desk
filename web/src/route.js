@@ -7,6 +7,8 @@ export function parse(pathname = window.location.pathname) {
   const ticket = pathname.match(/^\/t\/([A-Za-z0-9_-]+)\/?$/);
   if (ticket) return { view: "ticket", ref: ticket[1].toUpperCase() };
 
+  if (pathname === "/auth/callback") return { view: "oidc-callback" };
+
   const settings = pathname.match(/^\/settings(?:\/([a-z]+))?\/?$/);
   if (settings) return { view: "settings", section: settings[1] || "overview" };
 

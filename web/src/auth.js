@@ -18,6 +18,11 @@ export const auth = {
   register: (payload) =>
     call("/api/auth/register", { method: "POST", headers: json, body: JSON.stringify(payload) }),
   logout: () => call("/api/auth/logout", { method: "POST" }),
+  oidcStatus: () => call("/api/auth/oidc/status"),
+  oidcCallback: (code, state) =>
+    call("/api/auth/oidc/callback", {
+      method: "POST", headers: json, body: JSON.stringify({ code, state }),
+    }),
   verify: (token) =>
     call("/api/auth/verify", { method: "POST", headers: json, body: JSON.stringify({ token }) }),
   verify: (token) =>

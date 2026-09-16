@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { auth } from "./auth";
 import AgentConsole from "./AgentConsole";
@@ -14,6 +14,9 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState(null);
   const [route, setRoute] = useState(() => parse());
+  // an authorisation code is single-use, and StrictMode runs effects twice in
+  // development, so the second exchange would fail and overwrite the success
+  const exchanged = useRef(false);
   const showSettings = route.view === "settings";
   const deepRef = route.view === "ticket" ? route.ref : null;
 
@@ -23,6 +26,27 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = window.location.pathname === "/verify" ? params.get("token") : null;
+
+    if (route.view === "oidc-callback") {
+      if (exchanged.current) { setReady(true); return; }
+      exchanged.current = true;
+      const code = params.get("code");
+      const st = params.get("state");
+      const failed = params.get("error_description") || params.get("error");
+
+      if (failed) {
+        setErr(failed);
+        replace("/");
+        setRoute({ view: "home" });
+        setReady(true);
+        return;
+      }
+      auth.oidcCallback(code, st)
+        .then((m) => { setMe(m); replace("/"); setRoute({ view: "home" }); })
+        .catch((e) => { setErr(e.message); replace("/"); setRoute({ view: "home" }); })
+        .finally(() => setReady(true));
+      return;
+    }
 
     if (token) {
       auth.verify(token)

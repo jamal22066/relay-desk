@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { auth } from "./auth";
 import Logo from "./Logo";
 
@@ -8,6 +8,11 @@ export default function Login({ onSignedIn }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
+  const [sso, setSso] = useState(false);
+
+  useEffect(() => {
+    auth.oidcStatus().then((r) => setSso(r.enabled)).catch(() => setSso(false));
+  }, []);
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const valid =
@@ -70,6 +75,15 @@ export default function Login({ onSignedIn }) {
 
         <div className="form">
           {err && <div className="errbar" style={{ marginBottom: 14 }}>{err}</div>}
+
+          {sso && mode === "login" && (
+            <>
+              <a className="btn teal ssobtn" href="/api/auth/oidc/start">
+                Sign in with single sign-on
+              </a>
+              <div className="ssodivider"><span>or use a password</span></div>
+            </>
+          )}
 
           {mode === "register" && (
             <>

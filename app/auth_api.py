@@ -201,3 +201,96 @@ def verify_email(payload: VerifyIn, response: Response, db: Session = Depends(ge
 
     _set_cookie(response, user)
     return _me(user)
+
+
+# ------------------------------------------------------------------- OIDC
+
+
+@router.get("/oidc/status")
+def oidc_status():
+    """Tells the sign-in page whether to offer the SSO button."""
+    from app.config import settings as env
+
+    return {"enabled": bool(env.oidc_enabled and env.oidc_client_id)}
+
+
+@router.get("/oidc/start")
+def oidc_start(next: str = "/"):
+    from fastapi.responses import RedirectResponse
+
+    from app.config import settings as env
+    from app.oidc import OidcError, authorize_url, issue_state
+
+    if not env.oidc_enabled:
+        raise HTTPException(404, "Single sign-on is not configured.")
+
+    # only relative paths, so the state cannot carry an open redirect
+    if not next.startswith("/") or next.startswith("//"):
+        next = "/"
+
+    try:
+        return RedirectResponse(authorize_url(issue_state(next)))
+    except OidcError as e:
+        raise HTTPException(503, str(e))
+
+
+class OidcCallbackIn(BaseModel):
+    code: str
+    state: str
+
+
+@router.post("/oidc/callback", response_model=Me)
+def oidc_callback(
+    payload: OidcCallbackIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    from app.config import settings as env
+    from app.oidc import OidcError, exchange, read_state
+
+    if not env.oidc_enabled:
+        raise HTTPException(404, "Single sign-on is not configured.")
+
+    rl_check(request)
+
+    if read_state(payload.state) is None:
+        raise HTTPException(400, "That sign-in link has expired. Try again.")
+
+    try:
+        ident = exchange(payload.code)
+    except OidcError as e:
+        raise HTTPException(401, str(e))
+
+    # match on subject first: it is stable, whereas an address can be reassigned
+    user = db.scalar(select(User).where(User.oidc_subject == ident.subject))
+    if user is None:
+        user = db.scalar(select(User).where(func.lower(User.email) == ident.email))
+
+    if user is not None and not user.is_active:
+        raise HTTPException(403, "That account is not active.")
+
+    role = "admin" if ident.is_admin else "agent" if ident.is_agent else "customer"
+
+    if user is None:
+        user = User(email=ident.email, org="Directory", auth_source="oidc")
+        db.add(user)
+    elif user.auth_source == "local":
+        # a local account exists for this address; the IdP proved ownership of
+        # it, so adopt the account rather than creating a duplicate
+        user.password_hash = None
+
+    user.auth_source = "oidc"
+    user.oidc_subject = ident.subject
+    user.display_name = ident.display_name
+    user.email = ident.email
+    user.email_verified = True
+    user.role = role
+    user.last_login_at = utcnow()
+
+    db.commit()
+    db.refresh(user)
+
+    rl_clear(request, user.email)
+    _set_cookie(response, user)
+    return _me(user)

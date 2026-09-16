@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     ldap_attr_email: str = "mail"
     ldap_tls_verify: bool = True
 
+    oidc_enabled: bool = False
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = ""
+    oidc_scopes: str = "openid email profile"
+    oidc_groups_claim: str = "groups"
+    oidc_agent_group: str = ""
+    oidc_admin_group: str = ""
+
     upload_dir: str = "/var/lib/relay/uploads"
     upload_max_bytes: int = 10 * 1024 * 1024
     upload_max_files: int = 5
